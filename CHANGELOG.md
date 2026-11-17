@@ -3,6 +3,31 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-11-17
+
+### 变更（破坏性）
+
+- 移除 `OnlineMapProvider` 及 `OnlineTileSources` 的天地图、星图地球专用方法；`OnlineTileSources`
+  只保留通用 `Create(urlTemplate, ...)`，服务地址、key 与多 key 轮换由调用方自行实现（示例自行拼装 URL）
+- 版本号提升为 2.0.0：本次为公开 API 破坏性变更，在线源需从专用方法迁移到通用 URL 模板
+
+### 新增
+
+- **坐标系检测**：`TileSourceInfo.CoordinateSystem`；`HttpTileSource` 按 URL/名称检测常见服务商，
+  `MbTilesTileSource` 读取 metadata 的 crs/srs，`CompositeTileSource` 混合时报告 `Unknown`
+- **坐标转换**：`CoordinateConverter` 支持 WGS84、Web 墨卡托（EPSG:3857）、GCJ-02、BD-09
+  之间的转换，境外不应用 GCJ/BD 偏移
+- **示例**：`--coordinate-test` 输出转换往返误差与 URL 检测结果；新增英文说明
+  [docs/coordinate-systems.md](docs/coordinate-systems.md)
+
+### 文档
+
+- 新增英文 `README.md` 作为 GitHub 与 NuGet 的默认展示文档，中文版本移至
+  [README.zh-CN.md](README.zh-CN.md)
+- 补充平面模式 Heading/Pitch 行为说明与 3D/平面同角度对比截图（[docs/flat-mode.md](docs/flat-mode.md)、README）
+- 修正平面模式文档中“仅投影/输入变化”的描述：实际还会切换渲染通道（隐藏星空/大气/光照）
+- 示例新增 `--orientation-test`，验证平面模式不应用 Heading/Pitch、切回三维后数值仍保留
+
 ## [1.1.1] - 2026-11-17
 
 ### 新增

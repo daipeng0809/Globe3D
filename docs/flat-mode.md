@@ -2,7 +2,7 @@
 
 `GlobeView` can switch between the default 3D globe and a flat 2D Web Mercator map at runtime.
 The same tile pyramid, LOD selection, layers, markers, regions, labels, hover and hit testing are
-reused in both modes; only the projection and input mapping change.
+reused in both modes; the projection, rendering pass and input mapping change.
 
 ## Enabling
 
@@ -21,7 +21,7 @@ globe.IsFlatMode = false;   // back to the 3D globe
 
 `IsFlatMode` defaults to `false`. The switch is a normal `StyledProperty`, so it can be bound,
 animated in code, or toggled from a toolbar button. The sample exposes a **平面模式 / 三维模式**
-button and the `--flat` / `--flat-toggle-test` command-line switches.
+button and the `--flat`, `--flat-toggle-test` and `--orientation-test` command-line switches.
 
 ## Interaction
 
@@ -35,7 +35,25 @@ button and the `--flat` / `--flat-toggle-test` command-line switches.
 | Hover | Marker highlight and tooltip | Same |
 
 `Pitch` and `Heading` keep their values but are ignored while flat mode is active, so switching back
-to 3D restores the previous orientation.
+to 3D restores the previous orientation. Right-drag tilt is disabled in flat mode.
+
+## Heading and pitch in flat mode
+
+Flat mode is a north-up orthographic Web Mercator view. `Heading` (map rotation) and `Pitch`
+(tilt) only affect the 3D globe: the flat projection does not rotate or tilt, even when both
+properties are non-zero.
+
+The sample's `--orientation-test` sets `Heading = 60°` and `Pitch = 50°` in flat mode and then
+switches back to 3D. The screenshot below shows the same view with those values:
+
+- **Left — 3D**: the globe is rotated and tilted by the values.
+- **Right — flat (2D)**: the map remains north-up and untilted.
+
+The values themselves are retained, so switching back to 3D applies them again; they are not reset
+when flat mode is entered. If you need a rotating or tilted 2D map, it is not provided by this
+projection and would require a separate implementation.
+
+![3D vs flat with Heading=60° and Pitch=50°](flat-mode-heading-pitch.png)
 
 ## What changes in flat mode
 
@@ -96,10 +114,12 @@ the camera altitude, which now controls the flat zoom.
 ```bash
 dotnet run --project samples/Globe3D.Demo -- --flat
 dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test
+dotnet run --project samples/Globe3D.Demo -- --orientation-test
 ```
 
 `--flat` starts directly in 2D mode. `--flat-toggle-test` enables 2D, pans the map, switches back
-to 3D and writes the results to `demo.log`.
+to 3D and writes the results to `demo.log`. `--orientation-test` sets Heading/Pitch in flat mode,
+logs that the flat view remains north-up, switches to 3D and logs the retained values.
 
 ## Compatibility and limitations
 

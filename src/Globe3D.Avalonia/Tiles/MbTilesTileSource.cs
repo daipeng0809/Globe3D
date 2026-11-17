@@ -12,6 +12,7 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
 {
     private readonly string _connectionString;
     private readonly bool _flipY;
+    private readonly CoordinateSystem? _requestedCoordinateSystem;
     private TileSourceInfo _info;
 
     /// <summary>
@@ -19,7 +20,10 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
     /// </summary>
     /// <param name="filePath">MBTiles 文件路径。</param>
     /// <param name="flipY">是否按 MBTiles 规范的 TMS 行序解释 tile_row，默认 true。</param>
-    public MbTilesTileSource(string filePath, bool flipY = true)
+    /// <param name="coordinateSystem">
+    /// 显式指定数据坐标系；为空时从 metadata 的 crs/srs 推断，推断不到按 WGS84。
+    /// </param>
+    public MbTilesTileSource(string filePath, bool flipY = true, CoordinateSystem? coordinateSystem = null)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("filePath 不能为空", nameof(filePath));
@@ -28,6 +32,7 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
 
         FilePath = Path.GetFullPath(filePath);
         _flipY = flipY;
+        _requestedCoordinateSystem = coordinateSystem;
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = FilePath,
@@ -36,7 +41,7 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
             Pooling = true
         }.ToString();
 
-        _info = ReadInfo();
+        _info = ReadInfo(coordinateSystem);
     }
 
     /// <summary>MBTiles 文件完整路径。</summary>
@@ -45,7 +50,7 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
     public TileSourceInfo Info => _info;
 
     /// <summary>重新读取元数据（例如文件被替换后）。</summary>
-    public void RefreshInfo() => _info = ReadInfo();
+    public void RefreshInfo() => _info = ReadInfo(_requestedCoordinateSystem);
 
     public async Task<byte[]?> GetTileAsync(TileId id, CancellationToken cancellationToken = default)
     {
@@ -70,7 +75,7 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
         return data;
     }
 
-    private TileSourceInfo ReadInfo()
+    private TileSourceInfo ReadInfo(CoordinateSystem? coordinateSystem)
     {
         var metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -136,7 +141,8 @@ public sealed class MbTilesTileSource : ITileSource, IDisposable
             MinZoom = minZoom ?? 0,
             MaxZoom = maxZoom ?? 18,
             Bounds = bounds,
-            Format = metadata.TryGetValue("format", out var format) ? format : null
+            Format = metadata.TryGetValue("format", out var format) ? format : null,
+            CoordinateSystem = coordinateSystem ?? CoordinateSystemDetector.DetectMetadata(metadata)
         };
     }
 

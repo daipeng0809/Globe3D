@@ -86,6 +86,51 @@ public partial class MainWindow : Window
                 Program.Log($"[FLAT] toggle final flat={Globe.IsFlatMode} lod={Globe.GetDrawnZoomRange()}"),
                 TimeSpan.FromSeconds(5.5));
         }
+        else if (args.Contains("--orientation-test"))
+        {
+            // 验证平面模式不应用 Heading/Pitch，且切回三维后仍保留原值
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = true, TimeSpan.FromSeconds(1));
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.Heading = 60d;
+                Globe.Pitch = 50d;
+            }, TimeSpan.FromSeconds(1.5));
+            DispatcherTimer.RunOnce(() =>
+                Program.Log($"[MODE] flat={Globe.IsFlatMode} heading={Globe.Heading:0} pitch={Globe.Pitch:0}"),
+                TimeSpan.FromSeconds(2));
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = false, TimeSpan.FromSeconds(4));
+            DispatcherTimer.RunOnce(() =>
+                Program.Log($"[MODE] flat={Globe.IsFlatMode} heading={Globe.Heading:0} pitch={Globe.Pitch:0} " +
+                            $"lod={Globe.GetDrawnZoomRange()}"),
+                TimeSpan.FromSeconds(5));
+        }
+        else if (args.Contains("--coordinate-test"))
+        {
+            // 坐标转换与检测冒烟：GCJ-02/BD-09 往返误差、Web 墨卡托往返误差、URL 检测
+            DispatcherTimer.RunOnce(() =>
+            {
+                var wgs = new GeoPoint(39.9042d, 116.4074d);
+                var gcj = CoordinateConverter.FromWgs84(wgs, CoordinateSystem.Gcj02);
+                var gcjBack = CoordinateConverter.ToWgs84(gcj, CoordinateSystem.Gcj02);
+                var bd = CoordinateConverter.FromWgs84(wgs, CoordinateSystem.Bd09);
+                var bdBack = CoordinateConverter.ToWgs84(bd, CoordinateSystem.Bd09);
+                var (x, y) = CoordinateConverter.Wgs84ToWebMercator(wgs.Latitude, wgs.Longitude);
+                var webMercator = CoordinateConverter.WebMercatorToWgs84(x, y);
+                var detected = CoordinateSystemDetector.Detect(
+                    "https://webrd01.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}");
+                var amapSource = new HttpTileSource(
+                    "https://webrd01.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}");
+                var baiduSource = new HttpTileSource(
+                    "https://maponline1.bdimg.com/tile/?qt=tile&x={x}&y={y}&z={z}");
+
+                Program.Log($"[COORD] gcj={gcj.Latitude:0.######},{gcj.Longitude:0.######} " +
+                            $"gcjDelta={gcjBack.Latitude - wgs.Latitude:0.000000},{gcjBack.Longitude - wgs.Longitude:0.000000} " +
+                            $"bdDelta={bdBack.Latitude - wgs.Latitude:0.000000},{bdBack.Longitude - wgs.Longitude:0.000000} " +
+                            $"webMercatorDelta={webMercator.Latitude - wgs.Latitude:0.000000},{webMercator.Longitude - wgs.Longitude:0.000000} " +
+                            $"detected={detected} amapSource={amapSource.Info.CoordinateSystem} " +
+                            $"baiduSource={baiduSource.Info.CoordinateSystem}");
+            }, TimeSpan.FromSeconds(1));
+        }
         else if (args.Contains("--zoom-test"))
         {
             DispatcherTimer.RunOnce(
@@ -243,11 +288,22 @@ public partial class MainWindow : Window
             Program.Log("[DEMO] MBTiles 未找到：" + MbTilesPath);
 
         if (mapKeys.Geovis.Count > 0)
-            _basemaps.Add(("星图地球", () => OnlineTileSources.CreateGeovisEarth(
-                PickKey(mapKeys.Geovis), Path.Combine(TileCacheRoot, "geovis"))));
+        {
+            // HTTP 源是通用的；服务地址、key 轮换由示例自行处理（库不再提供服务商工厂）
+            _basemaps.Add(("星图地球", () => OnlineTileSources.Create(
+                "https://api.open.geovisearth.com/pj/base/v1/2025/{z}/{x}/{y}" +
+                $"?format=jpeg&tmsIds=w&token={PickKey(mapKeys.Geovis)}",
+                Path.Combine(TileCacheRoot, "geovis"), maxZoom: 18,
+                name: "星图地球卫星影像", userAgent: "Globe3D.Avalonia/1.0")));
+        }
+
         if (mapKeys.Tianditu.Count > 0)
-            _basemaps.Add(("天地图", () => OnlineTileSources.CreateTiandituSatellite(
-                PickKey(mapKeys.Tianditu), Path.Combine(TileCacheRoot, "tianditu"))));
+        {
+            _basemaps.Add(("天地图", () => OnlineTileSources.Create(
+                BuildTiandituUrl(PickKey(mapKeys.Tianditu)),
+                Path.Combine(TileCacheRoot, "tianditu"), maxZoom: 18,
+                name: "天地图卫星影像", userAgent: "Globe3D.Avalonia/1.0")));
+        }
 
         if (mapKeys.Tianditu.Count == 0 && mapKeys.Geovis.Count == 0)
         {
@@ -358,6 +414,16 @@ public partial class MainWindow : Window
 
     private static string PickKey(IReadOnlyList<string> keys) => keys[Random.Shared.Next(keys.Count)];
 
+    /// <summary>天地图 img_w WMTS 的通用 URL 模板；多个 tk 的轮换由示例自己实现。</summary>
+    private static string BuildTiandituUrl(string token)
+    {
+        var subdomain = "t" + Random.Shared.Next(8);
+        return $"https://{subdomain}.tianditu.gov.cn/img_w/wmts" +
+               "?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+               "&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles" +
+               "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=" + token;
+    }
+
     /// <summary>演示用图标目录（构建时复制到输出目录）。</summary>
     private static readonly string AssetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
 
@@ -461,7 +527,8 @@ public partial class MainWindow : Window
             Globe.TileSource = source;
             (previous as IDisposable)?.Dispose();
             var info = source.Info;
-            Program.Log($"[DEMO] basemap -> {info.Name} (z{info.MinZoom}-z{info.MaxZoom})");
+            Program.Log($"[DEMO] basemap -> {info.Name} [{info.CoordinateSystem}] " +
+                        $"(z{info.MinZoom}-z{info.MaxZoom})");
         }
         catch (Exception ex)
         {

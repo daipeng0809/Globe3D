@@ -17,7 +17,7 @@
     <!-- 把裁剪/AOT 诊断提升为错误，避免后续改动静默引入反射依赖（当前为零告警） -->
     <WarningsAsErrors>$(WarningsAsErrors);IL2026;IL2067;IL3050</WarningsAsErrors>
 
-    <Version>1.1.1</Version>
+    <Version>2.0.0</Version>
     <Authors>daipeng0809</Authors>
     <Description>面向 Avalonia 的实时三维地球控件：影像瓦片、程序化星空、大气散射、区域与标注图层、三维标记点（支持 png/jpg/gif/svg 图标），支持鼠标交互，兼容 Native AOT。</Description>
     <PackageId>Globe3D.Avalonia</PackageId>

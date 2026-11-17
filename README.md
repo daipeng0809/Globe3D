@@ -1,322 +1,355 @@
 # Globe3D.Avalonia
 
+English | [简体中文](README.zh-CN.md)
+
 [![NuGet](https://img.shields.io/nuget/v/Globe3D.Avalonia.svg)](https://www.nuget.org/packages/Globe3D.Avalonia)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Globe3D.Avalonia.svg)](https://www.nuget.org/packages/Globe3D.Avalonia)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-net8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Avalonia](https://img.shields.io/badge/Avalonia-12.1.1-8B4FBF.svg)](https://avaloniaui.net/)
 
-面向 Avalonia 12 的实时三维地球控件。基于 OpenGL ES 3.0 渲染影像瓦片、程序化星空与大气辉光，
-并在其上叠加三维标记点（支持 png/jpg/gif/svg 图标）、区域多边形与文字标注，
-内置瓦片分层 LOD 与完整的鼠标交互。
+A real-time 3D globe control for Avalonia 12. It renders imagery tiles, a procedural star field and
+atmospheric scattering with OpenGL ES 3.0, and overlays 3D markers (PNG/JPG/GIF/SVG icons), region
+polygons and text labels. The same control can switch to a flat 2D Web Mercator map at runtime.
 
-![预览](docs/screenshot.png)
+![Preview](docs/screenshot.png)
 
-## 目录
+## Table of contents
 
-- [特性](#特性)
-- [环境与兼容性](#环境与兼容性)
-- [安装](#安装)
-- [快速开始](#快速开始)
-  - [最简用法](#最简用法)
-  - [添加标记、区域与标注](#添加标记区域与标注)
-  - [图片图标标记](#图片图标标记)
-  - [相机控制](#相机控制)
-  - [事件与命中查询](#事件与命中查询)
-  - [性能面板](#性能面板)
-  - [平面模式](#平面模式)
-- [数据源](#数据源)
-- [交互](#交互)
-- [主要属性](#主要属性)
-- [技术说明](#技术说明)
-- [已知限制](#已知限制)
-- [示例工程](#示例工程)
-- [Native AOT 与裁剪](#native-aot-与裁剪)
-- [打包与发布](#打包与发布)
-- [版本记录](#版本记录)
-- [许可](#许可)
+- [Features](#features)
+- [Requirements & compatibility](#requirements--compatibility)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+  - [Minimal usage](#minimal-usage)
+  - [Markers, regions and labels](#markers-regions-and-labels)
+  - [Image markers](#image-markers)
+  - [Camera control](#camera-control)
+  - [Events and hit testing](#events-and-hit-testing)
+  - [Performance panel](#performance-panel)
+  - [Flat (2D) mode](#flat-2d-mode)
+- [Data sources](#data-sources)
+  - [MBTiles](#mbtiles)
+  - [Generic online tiles](#generic-online-tiles)
+  - [Coordinate systems](#coordinate-systems)
+  - [Composite sources](#composite-sources)
+- [Interaction](#interaction)
+- [Main properties](#main-properties)
+- [Technical notes](#technical-notes)
+- [Known limitations](#known-limitations)
+- [Sample project](#sample-project)
+- [Native AOT](#native-aot)
+- [Packaging and release](#packaging-and-release)
+- [Version history](#version-history)
+- [License](#license)
 
-## 特性
+## Features
 
-| 能力 | 说明 |
+| Capability | Description |
 | --- | --- |
-| 影像瓦片 | Web 墨卡托 XYZ 金字塔，网格直接由墨卡托参数映射到球面，无接缝 |
-| 分层 LOD | 四叉树按瓦片距离 + 掠射角 + 屏幕投影尺寸选择层级，同一帧内近景/地平线用高层级、远处用低层级 |
-| 数据源 | MBTiles（离线 SQLite）、HTTP（在线 + 磁盘缓存）、内置天地图/星图地球工厂、多源组合 |
-| 稀疏回退 | 某层级瓦片缺失时自动沿祖先链回退，区域外不会出现黑洞 |
-| 星空 | 程序化生成（三层哈希星点 + 银河带），随相机旋转，零图片资源 |
-| 大气 | 菲涅尔边缘散射 + 外发光环，颜色与强度可调 |
-| 三维标记 | 经纬度 + 海拔，自动处理球体遮挡，可绘制高度引线 |
-| 图片图标 | png / jpg / gif / bmp / webp / svg 直接作为图标，可单独设置缩放与像素偏移 |
-| 接近提示 | 鼠标靠近标记点时高亮并在鼠标旁弹出提示，可按标记点关闭 |
-| 区域 | 经纬度顶点自动做球面细分，支持填充与描边 |
-| 文字标注 | 使用 Avalonia 矢量绘制，中文清晰，自动防重叠避让 |
-| 交互 | 左键旋转、右键倾斜、滚轮缩放、双击飞行、标记/地表拾取 |
-| 渲染调度 | 按需渲染，静止时 CPU/GPU 占用归零 |
-| 平面模式 | `IsFlatMode` 在三维地球与二维 Web 墨卡托平面间切换，支持平移/缩放、瓦片 LOD、标记/区域/标注 |
-| 性能面板 | 一键开启的性能 HUD：0-100 流畅度评分、帧率/刷新率/帧耗时、瓦片与加载队列、MBTiles/磁盘缓存与网络的实时读取速度 |
+| Imagery tiles | Web Mercator XYZ pyramid mapped directly from Mercator parameters to the sphere, without seams |
+| Adaptive LOD | Quadtree chooses a zoom per tile from camera distance, grazing angle and projected screen size; near view and horizon use finer levels in the same frame |
+| Flat mode | `IsFlatMode` switches between the 3D globe and a north-up 2D Web Mercator map; pan, zoom, markers, regions, labels and hit testing are reused |
+| Data sources | MBTiles (offline SQLite), generic HTTP URL templates with disk cache, and composite sources |
+| Coordinate systems | Source datum reporting, heuristic detection, and WGS84 / Web Mercator / GCJ-02 / BD-09 conversion |
+| Sparse fallback | Missing tiles fall back along the ancestor chain, so gaps do not become black holes |
+| Sky | Procedural stars (three hashed layers plus a Milky Way band), no image assets |
+| Atmosphere | Fresnel rim scattering and outer glow, colour and intensity configurable |
+| Markers | 3D markers with altitude, sphere occlusion, altitude leader lines and image icons |
+| Image icons | PNG / JPG / GIF (first frame) / BMP / WebP / SVG; per-marker scale and pixel offset |
+| Hover tips | Highlight and tooltip near markers; can be disabled per marker |
+| Regions | Spherical subdivision for longitude/latitude vertices, fill and stroke, antimeridian aware |
+| Labels | Avalonia vector text with overlap avoidance |
+| Interaction | Rotate, tilt, zoom, double-click fly-to, marker/ground picking |
+| Performance panel | Optional HUD with smoothness score, FPS, refresh estimate, frame cost, tile loader and disk/network I/O |
+| Rendering schedule | On-demand rendering; idle frames do not consume CPU/GPU |
+| Native AOT | Library is AOT/trim analyser clean; the sample publishes as a self-contained native executable |
 
-## 环境与兼容性
+## Requirements & compatibility
 
-| 项目 | 说明 |
+| Item | Details |
 | --- | --- |
-| 目标框架 | `net8.0` |
-| 依赖 | Avalonia 12.1.1（最低依赖，兼容任意 Avalonia 12.1.1+ 项目）、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11 |
-| 渲染后端 | OpenGL ES 3.0（`OpenGlControlBase`）。Windows 由 ANGLE 提供（底层 D3D11），无需额外运行时 |
-| 平台 | Windows / Linux 桌面；Linux 与国产化平台需要系统加载器提供 GLES 3.0 驱动 |
-| 线程模型 | 控件与叠加层绘制在 UI 线程，瓦片下载/解码在后台线程；图标解码可跨线程调用 |
-| Native AOT | 库开启 AOT/裁剪分析（`IsAotCompatible`，零告警）；示例以 Native AOT 发布并验证通过，见 [Native AOT 与裁剪](#native-aot-与裁剪) |
+| Target framework | `net8.0` |
+| Dependencies | Avalonia **12.1.1** (minimum; any Avalonia 12.1.1+ application can reference it), Silk.NET.OpenGLES 2.22.0, Microsoft.Data.Sqlite 8.0.11 |
+| Rendering backend | OpenGL ES 3.0 (`OpenGlControlBase`). Windows uses ANGLE (D3D11 underneath) and needs no extra runtime |
+| Platforms | Windows / Linux desktop; Linux and domestic platforms need a GLES 3.0 driver |
+| Threading | Control and overlay rendering on the UI thread; tile download/decode on worker threads; icon decoding is thread-safe |
+| AOT | `IsAotCompatible=true`; IL2026/IL2067/IL3050 are build errors. The sample enables `PublishAot` |
 
-## 安装
+> Version 2.0.0 is a breaking release: `OnlineMapProvider` and the provider-specific
+> `OnlineTileSources` methods were removed. Use the generic `OnlineTileSources.Create(urlTemplate, ...)`
+> or `new HttpTileSource(...)`.
+
+## Installation
 
 ```bash
-dotnet add package Globe3D.Avalonia
+dotnet add package Globe3D.Avalonia --version 2.0.0
 ```
 
-或直接在工程中引用：
+Or in a project file:
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="1.1.1" />
+<PackageReference Include="Globe3D.Avalonia" Version="2.0.0" />
 ```
 
-XAML 命名空间：
+XAML namespace:
 
 ```xml
 <Window xmlns:g="clr-namespace:Globe3D.Avalonia;assembly=Globe3D.Avalonia">
 ```
 
-## 快速开始
+## Quick start
 
-### 最简用法
+### Minimal usage
 
 ```xml
 <g:GlobeView MbTilesPath="D:\maps\satellite.mbtiles" />
 ```
 
-### 添加标记、区域与标注
+### Markers, regions and labels
 
 ```csharp
-// 普通标记
-var cityLayer = new GlobeLayer("城市");
+var cityLayer = new GlobeLayer("Cities");
 cityLayer.Markers.Add(new GlobeMarker
 {
-    Position = new GeoPoint(39.9042, 116.4074),   // 纬度, 经度
-    Label = "北京",
+    Position = new GeoPoint(39.9042, 116.4074), // latitude, longitude
+    Label = "Beijing",
     Shape = MarkerShape.Pin,
     Fill = Brushes.OrangeRed
 });
 
-// 三维标记点：经度、纬度、高度（米）
+// 3D marker with altitude in metres
 cityLayer.Markers.Add(new GlobeMarker
 {
     Position = new GeoPoint(35d, 118d, 400_000d),
-    Label = "高空目标 400km",
+    Label = "High-altitude target",
     Shape = MarkerShape.Triangle,
     ShowAltitudeLine = true
 });
 globe.Layers.Add(cityLayer);
 
-// 区域多边形
 var region = new GlobeRegion
 {
-    Label = "示例区域",
+    Label = "Example region",
     Fill = new SolidColorBrush(Color.Parse("#3348A0FF")),
     Stroke = Brushes.SkyBlue,
     StrokeThickness = 2
 };
 region.AddPoint(28, 100).AddPoint(34, 98).AddPoint(36, 110).AddPoint(31, 114);
 
-var regionLayer = new GlobeLayer("区域");
+var regionLayer = new GlobeLayer("Regions");
 regionLayer.Regions.Add(region);
 globe.Layers.Add(regionLayer);
 
-// 纯文字标注
-var labelLayer = new GlobeLayer("标注");
+var labelLayer = new GlobeLayer("Labels");
 labelLayer.Labels.Add(new GlobeLabel
 {
     Position = new GeoPoint(42d, 103d),
-    Text = "内蒙古高原",
+    Text = "Inner Mongolia Plateau",
     Foreground = Brushes.Khaki
 });
 globe.Layers.Add(labelLayer);
 ```
 
-### 图片图标标记
+### Image markers
 
-任何 Avalonia `IImage` 都能当作标记图标；也可以只给文件路径，控件会按需加载并缓存。
-支持 png / jpg / jpeg / gif（取首帧）/ bmp / webp，以及 **svg**（内置矢量渲染，缩放不模糊）。
+Any Avalonia `IImage` can be used as a marker icon, or just provide a file path and the control loads
+and caches it. Supported: PNG / JPG / JPEG / GIF (first frame) / BMP / WebP, plus SVG with built-in
+vector rendering.
 
 ```csharp
-var layer = new GlobeLayer("图片标记");
+var layer = new GlobeLayer("Image markers");
 
-// 1) 直接给文件，缩放 0.5、向上偏移 26px（图钉尖端对准坐标点）
 layer.Markers.Add(new GlobeMarker
 {
     Position = new GeoPoint(39.9042, 116.4074),
     ImagePath = @"Assets\pin.png",
     ImageScale = 0.5,
-    ImageOffset = new Vector(0, -26),
-    HoverTip = "北京 · 机场"        // 可选：鼠标靠近时显示的内容
+    ImageOffset = new Vector(0, -26), // move the pin tip to the coordinate
+    HoverTip = "Beijing"
 });
 
-// 2) SVG 图标（矢量，任意缩放清晰）
 layer.Markers.Add(new GlobeMarker
 {
     Position = new GeoPoint(31.2304, 121.4737),
     ImagePath = @"Assets\radar.svg",
     ImageScale = 1.3,
-    Tag = "上海雷达"
-});
-
-// 3) 自己解码好的 IImage（Bitmap / RenderTargetBitmap / 任意第三方 IImage）
-layer.Markers.Add(new GlobeMarker
-{
-    Position = new GeoPoint(23.1291, 113.2644),
-    Image = new Bitmap(@"Assets\target.jpg"),
-    ImageScale = 0.46
+    Tag = "Shanghai radar"
 });
 
 globe.Layers.Add(layer);
 
-// 也可以手动加载（同一文件被多个标记点复用时只会解码一次，缓存最多 64 个图标）
+// Manual loading (cached; at most 64 icons by default)
 IImage icon = MarkerImage.Load(@"Assets\dot.gif");
 IImage svg = MarkerImage.FromSvg("<svg viewBox='0 0 24 24'>...</svg>");
 ```
 
-| 标记点属性 | 说明 |
+| Marker property | Description |
 | --- | --- |
-| `Image` / `ImagePath` | 图标来源，同时设置时以 `Image` 为准；加载失败时 `ImageError` 给出原因，并回退到底色图形 |
-| `ImageScale` | 相对图像自身像素尺寸的缩放倍数，默认 1 |
-| `ImageOffset` | 相对锚点的像素偏移（正值向右/向下），常用来把图钉尖端对准坐标 |
-| `ShowHoverTip` | 是否参与接近提示，默认 true；设为 false 后靠近时既不高亮也不弹提示 |
-| `HoverTip` | 接近时显示的内容，为空时依次回退到 `Label`、`ToolTip` |
-| `HoverRadius` | 该标记点单独的接近判定半径（像素），不大于 0 时用控件的 `MarkerHoverRadius` |
+| `Image` / `ImagePath` | Icon source; `Image` wins when both are set. `ImageError` reports a load failure |
+| `ImageScale` | Scale relative to the image's pixel size |
+| `ImageOffset` | Pixel offset from the anchor (positive right/down) |
+| `ShowHoverTip` | Whether this marker participates in hover tips |
+| `HoverTip` | Hover text; falls back to `Label`, then `ToolTip` |
+| `HoverRadius` | Per-marker hover radius in pixels; `0` uses `MarkerHoverRadius` |
 
-### 相机控制
+### Camera control
 
 ```csharp
-globe.JumpTo(31.23, 121.47, 1_200_000);            // 立即定位
+globe.JumpTo(31.23, 121.47, 1_200_000);                 // immediate
 globe.FlyTo(31.23, 121.47, 260_000,
-    TimeSpan.FromMilliseconds(1200));               // 平滑飞行
+    TimeSpan.FromMilliseconds(1200));                   // smooth flight
 
-globe.CenterLatitude = 33;                          // 也可直接设属性
+globe.CenterLatitude = 33;
 globe.CenterLongitude = 108;
-globe.Altitude = 9_500_000;                         // 离地高度（米）
-globe.Pitch = 25;                                   // 俯仰 0-88 度
+globe.Altitude = 9_500_000;                              // metres above ground
+globe.Pitch = 25;                                        // 0-88 degrees
 ```
 
-### 事件与命中查询
+### Events and hit testing
 
 ```csharp
 globe.GlobeClicked += (_, e) =>
 {
     if (e.Location is { } p)
-        Console.WriteLine($"纬度 {p.Latitude}, 经度 {p.Longitude}");
+        Console.WriteLine($"latitude {p.Latitude}, longitude {p.Longitude}");
 };
 
-// 鼠标移动：携带屏幕坐标、地表经纬度、最近的标记点及其像素距离
 globe.GlobePointerMoved += (_, e) =>
 {
     if (e.NearestMarker is { } nearest && e.NearestDistance <= globe.MarkerHoverRadius)
-        ShowPopupNearMouse(e.ScreenPosition, nearest.Tag);
+        Console.WriteLine($"hover {nearest.Tag} at {e.ScreenPosition}");
 };
 
-// 接近状态变化（进入/离开标记点，离开时 Marker 为 null）
-globe.MarkerHoverChanged += (_, e) => Console.WriteLine(e.Marker?.Tag ?? "离开标记点");
+globe.MarkerHoverChanged += (_, e) => Console.WriteLine(e.Marker?.Tag ?? "left marker");
 
-// 点击最近标记点：单击时按“离图标最近”命中，容忍点偏几个像素
 globe.MarkerClicked += (_, e) => Console.WriteLine(e.Marker.Label);
 
-// 主动查询：屏幕最近 / 经纬度最近
-globe.FindNearestMarker(new Point(x, y), out var pixels);   // 不限距离，返回最近标记与距离
-globe.FindNearestMarker(new Point(x, y), maxDistance: 24); // 限定命中范围
-globe.FindNearestMarker(31.23, 121.47);                    // 按地表大圆距离
+// direct queries
+globe.FindNearestMarker(new Point(x, y), out var pixels);
+globe.FindNearestMarker(new Point(x, y), maxDistance: 24);
+globe.FindNearestMarker(31.23, 121.47);
 
-// 由外部输入转发或自动化测试驱动接近提示
 globe.UpdateHoverMarker(new Point(x, y));
-globe.UpdateHoverMarker(null);                              // 收起
+globe.UpdateHoverMarker(null);
 
 globe.RenderingError += (_, message) => Console.WriteLine(message);
 ```
 
-> 命中测试每次都用**当前相机**重新投影并做地平线遮挡剔除，球体背面的标记点不会被误判为可悬停/可点击，
-> 也不依赖上一帧的屏幕坐标缓存。
+Hit testing always re-projects with the **current camera** and culls the sphere's far side and
+horizon; it does not rely on the previous frame's screen positions.
 
-### 性能面板
+### Performance panel
 
 ```csharp
-globe.ShowPerformancePanel = true;   // 左上角显示评分 / 帧率 / 瓦片与 IO 速度
+globe.ShowPerformancePanel = true;
 
-var stats = globe.GetPerformanceSnapshot();   // 也可以自己取数打日志或画 HUD
+var stats = globe.GetPerformanceSnapshot();
 Console.WriteLine($"{stats.FramesPerSecond:0.0} fps, score {stats.SmoothnessScore}, " +
                   $"{stats.DiskReadBytesPerSecond:0} B/s");
 ```
 
-面板包含 0-100 流畅度评分（帧耗时 45% + 抖动 20% + 达成帧率 35%，以 60 FPS 为满分线；
-绿色 ≥90、黄色 ≥70、红色 <70）、帧率、刷新率、帧耗时、绘制瓦片/纹理数、LOD 层级与选瓦片耗时、
-加载队列，以及 MBTiles / 磁盘缓存 / 网络的瓦片读取速度与单瓦片耗时。空闲超过 1 秒后帧耗时/刷新率
-显示 `—`（不再回放旧样本），评分保留最近一次测量值。
-详细指标含义、采样方式与局限见 [docs/performance-panel.md](docs/performance-panel.md)（英文）。
+The HUD shows a 0-100 smoothness score (frame cost 45%, jitter 20%, achieved FPS 35% against a fixed
+60 FPS target), FPS, refresh estimate, frame cost, drawn tiles/textures, LOD and selection time,
+loader queue, and MBTiles/disk/network tile I/O. See [docs/performance-panel.md](docs/performance-panel.md)
+for the formulas, idle behaviour and limitations.
 
-### 平面模式
+### Flat (2D) mode
 
 ```csharp
-globe.IsFlatMode = true;   // 二维 Web 墨卡托平面
-globe.IsFlatMode = false;  // 恢复三维地球
+globe.IsFlatMode = true;   // flat Web Mercator map
+globe.IsFlatMode = false;  // 3D globe
 ```
 
-平面模式复用同一套瓦片/LOD/图层能力：
+In flat mode:
 
-- 左键拖动平移地图，滚轮缩放（复用 `Altitude`），双击飞近；右键拖拽倾斜不生效
-- 不绘制星空、大气与地表光照，标记高度引线隐藏，标记按经纬度落在平面上
-- 区域跨 ±180° 经线时会拆到地图左右两侧；地图在 ±180° 边缘停止，不做横向循环滚动
-- `Pitch` / `Heading` 在平面模式下被忽略，切回三维后仍保留原值
+- Left drag pans, wheel zooms (reusing `Altitude`), double-click flies closer; right-drag tilt is disabled.
+- Star field, atmosphere and surface lighting are not rendered; marker altitude leader lines are hidden.
+- The map is north-up and untilted. `Heading` / `Pitch` are retained but do not apply to the flat
+  projection; switching back to 3D restores the orientation.
+- The map is bounded to ±180° / ±85.05°; it does not wrap horizontally.
+- Regions crossing the antimeridian are split into two parts.
+- The same tile LOD, markers, regions, labels, hover, click and `FindNearestMarker` APIs are used.
 
-英文说明见 [docs/flat-mode.md](docs/flat-mode.md)。
+![3D vs flat with Heading/Pitch](docs/flat-mode-heading-pitch.png)
 
-## 数据源
+See [docs/flat-mode.md](docs/flat-mode.md) for details and implementation notes.
 
-### MBTiles（离线）
+## Data sources
+
+### MBTiles
 
 ```csharp
 globe.MbTilesPath = @"D:\DMap\mapabc\data\satellite.mbtiles";
 ```
 
-要求：标准 MBTiles，`tiles` 表为 TMS 行序（自南向北），`tile_data` 为 PNG/JPEG。
-若数据实际使用 XYZ 行序，可显式构造：
+Requirements: standard MBTiles, `tiles` table in TMS row order (south to north), `tile_data` in
+PNG/JPEG. For XYZ row order:
 
 ```csharp
 globe.TileSource = new MbTilesTileSource(path, flipY: false);
 ```
 
-### 在线瓦片（天地图 / 星图地球）
+### Generic online tiles
 
-控件不内置任何地图凭证，key/token 由调用方传入。内置工厂负责拼接 URL、筛选图片类型并走磁盘缓存：
+The library provides no provider-specific factory. `OnlineTileSources` only exposes a generic
+`Create(urlTemplate, ...)`; URLs, keys and multi-key rotation belong to the application. The same
+result can be obtained with `new HttpTileSource(...)`. Supported placeholders: `{z}`, `{x}`, `{y}`,
+`{-y}` (TMS row). Responses are filtered by `Content-Type` and cached on disk.
 
 ```csharp
-// 星图地球卫星影像（默认请求 JPEG，任何平台都能直接解码）
-globe.TileSource = OnlineTileSources.CreateGeovisEarth(
-    token: "你的 token",
+// GeovisEarth (example; JPEG decodes on every platform)
+globe.TileSource = OnlineTileSources.Create(
+    "https://api.open.geovisearth.com/pj/base/v1/2025/{z}/{x}/{y}?format=jpeg&tmsIds=w&token=YOUR_TOKEN",
     cacheDirectory: @"C:\TileCache\geovis");
 
-// 天地图卫星影像（WMTS，JPEG/PNG）
-globe.TileSource = OnlineTileSources.CreateTiandituSatellite(
-    token: "你的 tk",
+// TianDiTu WMTS (img_w is Web Mercator)
+globe.TileSource = OnlineTileSources.Create(
+    "https://t0.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+    "&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles" +
+    "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=YOUR_TK",
     cacheDirectory: @"C:\TileCache\tianditu");
 ```
 
-通用 URL 模板（支持 `{z}`、`{x}`、`{y}`、`{-y}` 占位符）：
+### Coordinate systems
+
+`TileSourceInfo.CoordinateSystem` reports the source datum. `HttpTileSource` detects it from the URL
+and name unless overridden:
+
+- AMap / Tencent (`amap`, `autonavi`, `gtimg`, `map.qq.com`) → `Gcj02`
+- Baidu (`bdimg`, `baidu.com`, `map.baidu`) → `Bd09`
+- TianDiTu, GeovisEarth, OSM and most standard XYZ sources → `Wgs84`
 
 ```csharp
-globe.TileSource = new HttpTileSource(
-    "https://example.com/{z}/{x}/{y}.png",
-    cacheDirectory: @"C:\TileCache");
+var source = new HttpTileSource(url, coordinateSystem: CoordinateSystem.Wgs84);
 ```
 
-> 跨平台提示：星图地球默认使用 `format=jpeg`，避免个别平台缺少 WebP 解码能力时出现空白瓦片；
-> 需要 WebP 时可传 `preferWebP: true`。天地图返回 JPEG/PNG，桌面与移动平台均可直接使用。
+MBTiles reads `crs` / `srs` / `coordinate_system` metadata, and also accepts an explicit value:
 
-### 多源组合（本地优先，在线兜底）
+```csharp
+new MbTilesTileSource(path, coordinateSystem: CoordinateSystem.Gcj02);
+```
+
+`CompositeTileSource` reports the common value when all children agree, otherwise `Unknown`.
+
+`CoordinateConverter` converts between the common systems:
+
+```csharp
+var wgs = CoordinateConverter.ToWgs84(new GeoPoint(39.907, 116.397), CoordinateSystem.Gcj02);
+var bd = CoordinateConverter.FromWgs84(wgs, CoordinateSystem.Bd09);
+
+var (x, y) = CoordinateConverter.Wgs84ToWebMercator(39.9042, 116.4074);
+var back = CoordinateConverter.WebMercatorToWgs84(x, y);
+```
+
+Supported: WGS84, Web Mercator (EPSG:3857), GCJ-02, BD-09. GCJ/BD offsets are not applied outside
+China. Web Mercator uses metres, so use `WebMercatorToWgs84` / `Wgs84ToWebMercator` rather than the
+geographic overloads.
+
+> `CoordinateSystem` is metadata only. The control still requests WGS84 Web Mercator tile indices
+> and does not warp GCJ-02/BD-09 raster imagery automatically. Convert your data, pre-process the
+> tiles, or use a WGS84 source. See [docs/coordinate-systems.md](docs/coordinate-systems.md).
+
+### Composite sources
 
 ```csharp
 globe.TileSource = new CompositeTileSource(
@@ -324,183 +357,145 @@ globe.TileSource = new CompositeTileSource(
     new HttpTileSource("https://example.com/{z}/{x}/{y}.png", @"C:\TileCache"));
 ```
 
-## 交互
+## Interaction
 
-| 操作 | 行为 |
-| --- | --- |
-| 左键拖拽 | 旋转地球；松手瞬间仍在移动时带惯性，拖到位置停稳后再松手不滑动 |
-| 右键拖拽 | 倾斜与航向 |
-| 滚轮 | 缩放 |
-| 双击 | 飞行到点击位置 |
-| 单击 | 拾取最近的标记点，或返回地表经纬度 |
-| 鼠标悬停 | 靠近开启提示的标记点时高亮并在鼠标旁显示内容 |
-| 平面模式 | 左键拖动平移、滚轮缩放、双击飞近；右键倾斜不生效 |
+| Input | 3D mode | Flat mode |
+| --- | --- | --- |
+| Left drag | Rotate the globe; inertia after release | Pan the map; inertia after release |
+| Right drag | Tilt and heading | Ignored |
+| Wheel | Zoom | Cursor-anchored zoom |
+| Double click | Fly to the point | Fly to the point and zoom in |
+| Single click | Pick nearest marker or ground coordinate | Same |
+| Hover | Highlight and tooltip | Same |
 
-## 主要属性
+## Main properties
 
-| 属性 | 类型 | 默认值 | 说明 |
+| Property | Type | Default | Description |
 | --- | --- | --- | --- |
-| `CenterLatitude` | double | 32 | 观察中心纬度 |
-| `CenterLongitude` | double | 108 | 观察中心经度 |
-| `Altitude` | double | 10 200 000 | 相机离地高度（米） |
-| `Pitch` | double | 0 | 俯仰角，0-88 |
-| `Heading` | double | 0 | 航向角 |
-| `MinAltitude` / `MaxAltitude` | double | 10 000 / 51 000 000 | 缩放上下限 |
-| `MbTilesPath` | string? | null | MBTiles 路径，自动创建数据源 |
-| `TileSource` | ITileSource? | null | 自定义瓦片源 |
-| `ShowStars` / `StarIntensity` | bool / double | true / 1.0 | 星空开关与亮度 |
-| `AtmosphereColor` / `AtmosphereIntensity` | Color / double | #5AA8FF / 0.85 | 大气颜色与强度 |
-| `LightingIntensity` | double | 0.28 | 地表方向光明暗 |
-| `ShowLabels` | bool | true | 文字标注开关 |
-| `MarkerHoverRadius` | double | 18 | 鼠标接近标记点的默认判定半径（像素） |
-| `MarkerHitTolerance` | double | 6 | 单击命中标记点的额外容忍距离（像素） |
-| `AutoRotate` / `AutoRotateSpeed` | bool / double | false / 6 | 自动旋转 |
-| `IsFlatMode` | bool | false | 平面模式（二维 Web 墨卡托地图） |
-| `ShowPerformancePanel` | bool | false | 显示性能面板（帧率、刷新率、瓦片与 IO 统计） |
-| `Layers` | AvaloniaList&lt;GlobeLayer&gt; | 空 | 图层集合，XAML 默认内容 |
+| `CenterLatitude` | double | 32 | Centre latitude |
+| `CenterLongitude` | double | 108 | Centre longitude |
+| `Altitude` | double | 10 200 000 | Camera altitude in metres |
+| `Pitch` | double | 0 | Tilt, 0-88 (3D only) |
+| `Heading` | double | 0 | Heading (3D only) |
+| `MinAltitude` / `MaxAltitude` | double | 10 000 / 51 000 000 | Zoom limits |
+| `MbTilesPath` | string? | null | MBTiles path; creates a source automatically |
+| `TileSource` | ITileSource? | null | Custom tile source |
+| `ShowStars` / `StarIntensity` | bool / double | true / 1.0 | Star field |
+| `AtmosphereColor` / `AtmosphereIntensity` | Color / double | #5AA8FF / 0.85 | Atmosphere |
+| `LightingIntensity` | double | 0.28 | Surface directional light |
+| `ShowLabels` | bool | true | Text labels |
+| `MarkerHoverRadius` | double | 18 | Default hover radius in pixels |
+| `MarkerHitTolerance` | double | 6 | Extra click tolerance in pixels |
+| `AutoRotate` / `AutoRotateSpeed` | bool / double | false / 6 | Auto rotation |
+| `IsFlatMode` | bool | false | Flat 2D map |
+| `ShowPerformancePanel` | bool | false | Performance HUD |
+| `Layers` | AvaloniaList&lt;GlobeLayer&gt; | empty | Layer collection; XAML content |
 
-## 技术说明
+## Technical notes
 
-- 渲染后端：`Avalonia.OpenGL.Controls.OpenGlControlBase` + `Silk.NET.OpenGLES`
-- Windows 下由 ANGLE 提供 OpenGL ES 3.0（底层走 D3D11），无需额外运行时
-- 瓦片网格用 `vec2` 参数化（9×9 顶点），顶点着色器完成墨卡托 → 球面映射，
-  所有瓦片共享同一 VAO，每个瓦片只需更新 4 个 uniform
-- 分层 LOD：以数据源最低层级为根做四叉树遍历，每个瓦片按「相机距离 + 掠射角」估计
-  所需层级，再叠加「投影尺寸超过一个纹理边长」的屏幕空间误差；单帧叶子数超预算时
-  把同层同父兄弟合并回父瓦片（不要求四片齐全，只降精度、不留空洞）。`GetDrawnZoomRange()` /
-  `GetDrawnLevelHistogram()` 可查看当前帧的层级分布
-- 瓦片加载：请求带优先级与「最近需要帧号」，相机移开后残留请求会被丢弃；失败瓦片在
-  冷却期过后自动重试；祖先纹理只作兜底显示，不会阻止更细瓦片的请求
-- 纹理上传：GLES 3.0 核心不支持 `GL_BGRA`，解码后统一转换为 RGBA 通道顺序
-- 区域填充：顶点在三维球面上按大圆展开，填充前先裁剪到相机可见半球，
-  跨 ±180° 经线与越过地平线的区域都能正确闭合，屏幕空间再做近平面与视口裁剪
-- 极区：墨卡托纬度截断在 ±85.05°，最北/最南一行把到极点的空隙摊到整行几何上，
-  正对极点俯视时不会露出没有几何的圆盘状空洞
-- 文字与图标由 Avalonia 矢量绘制叠加在 GL 表面之上，中文渲染质量高且可避让
-- 图片图标按路径懒加载并缓存（有容量上限的 LRU，默认 64；文件时间/大小变化后自动重读）；
-  SVG 由内置的 `SvgMarkerImage` 解析成 Avalonia `Geometry` 后**每帧矢量绘制**，
-  缩放时不需要重新栅格化，也不引入 Skia/Svg 等额外依赖，便于国产化平台部署
-- 命中测试用「当前相机」重新投影 + 地平线遮挡剔除，再按图标实际尺寸算包围盒：
-  鼠标接近按「到包围盒的距离」判定，单击按「最近的一个」命中，层级靠后的标记点优先
-- 惯性：`PointerReleased` 时若指针已静止超过 120 ms，则视为停稳松手，不触发惯性滑动
-- 平面模式：`OrbitCamera.IsFlat` 驱动 Web 墨卡托平面投影；瓦片用独立顶点着色器按屏幕 NDC 矩形铺开，
-  层级由「世界像素宽度 / 瓦片边长」估算；瓦片采样与区域/标记投影直接使用经纬度，避免 ±180° 端点
-  经过三维向量往返时被浮点误差翻到另一侧；区域按经度裁剪拆分绘制
-- 性能统计：帧耗时按最近 120 帧环形缓冲统计；空闲超过 1 秒后帧耗时/刷新率归零（面板显示 `—`），
-  评分以固定 60 FPS 为满分线，避免用帧间隔估算的刷新率做分母造成循环归一化；瓦片 IO 由
-  `MbTilesTileSource` / `HttpTileSource` 用 `Interlocked` 计数（逻辑读取量）；面板每 500 ms 采样一次，
-  关闭时不创建定时器也不绘制；`GetPerformanceSnapshot()` 可在不显示面板时自行取数
-- 依赖：Avalonia 12.1.1（包依赖声明为 12.1.1，Avalonia 12.1.1+ 项目可直接引用）、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11
+- Rendering: `OpenGlControlBase` + `Silk.NET.OpenGLES`; Windows ANGLE (D3D11).
+- Tiles use a shared 9×9 parameter mesh; the vertex shader maps Mercator coordinates to the sphere.
+  All tiles share one VAO and update only four uniforms.
+- LOD: quadtree from the source's minimum zoom. Desired zoom combines distance/grazing and screen
+  space error. When the leaf budget is exceeded, same-parent siblings are merged upward without holes.
+- Tile loading: priority queue, "last needed frame" tracking, stale request discard, failed-tile
+  cooldown and ancestor fallback.
+- GLES 3.0 core has no `GL_BGRA`; decoded tiles are converted to RGBA before upload.
+- Regions: spherical great-circle expansion and visible-hemisphere clipping; ±180° and horizon
+  crossings close correctly; screen-space clipping follows.
+- Flat mode: `OrbitCamera.IsFlat` drives a Web Mercator plane. Tiles use a dedicated vertex shader
+  and pre-computed NDC rectangles (double precision on the CPU), so deep zoom remains stable. Tile
+  sampling and overlays project longitude/latitude directly to avoid ±180° flips. Regions are
+  unwrapped and clipped to [-180, 180].
+- Coordinate systems: `TileSourceInfo.CoordinateSystem`, `CoordinateSystemDetector`,
+  `CoordinateConverter`; GCJ-02/BD-09 use the standard China-only offsets.
+- Performance: 120-frame ring buffer for frame cost and refresh estimate; rates use the interval
+  between snapshot calls; idle values reset after one second.
+- AOT: no reflection, `dynamic`, runtime XAML parsing or serializers.
+- Dependencies: Avalonia 12.1.1, Silk.NET.OpenGLES 2.22.0, Microsoft.Data.Sqlite 8.0.11.
 
-## 已知限制
+## Known limitations
 
-- 区域跨越 ±180° 经线时按「最短路径」解释边：若起点到终点的经度差超过 180°，
-  实际连的是另一侧；需要绘制超宽区域时请在 ±180° 处拆分顶点
-- 主流瓦片服务在 ±85° 以上没有影像，极冠由最边一行的纹理拉伸填充，放大后会看出拉伸痕迹
-- 需要可用的 OpenGL ES 3.0 环境，暂未提供软件渲染回退
-- GIF 只取首帧，不做动画播放
-- 内置 SVG 渲染支持 `svg / g / rect / circle / ellipse / line / polyline / polygon / path`
-  与 `fill / stroke / stroke-width / opacity / transform`，渐变只取首个色标近似；
-  滤镜、文本、外部引用等特性请自行解码为 `IImage` 后赋给 `Image`
-- 图标缓存最多保留 64 个文件（`MarkerImage.MaxCachedImages`），已移除的标记点若仍引用
-  图标对象，内存由该引用本身决定，缓存淘汰不会让它们失效
+- A region edge is interpreted on the shortest great-circle path; split vertices at ±180° for
+  extremely wide regions.
+- Mainstream tile services have no imagery above ±85°; the last row is stretched into the polar cap.
+- OpenGL ES 3.0 is required; there is no software renderer fallback.
+- GIF icons use the first frame only.
+- Built-in SVG supports `svg / g / rect / circle / ellipse / line / polyline / polygon / path`
+  and `fill / stroke / stroke-width / opacity / transform`; gradients use the first stop only.
+  Filters, text and external references should be decoded to `IImage`.
+- The marker icon cache holds at most 64 files (`MarkerImage.MaxCachedImages`).
+- `CoordinateSystem` is metadata; the control never warps GCJ-02/BD-09 tile imagery automatically.
 
-## 示例工程
+## Sample project
 
-`samples/Globe3D.Demo` 展示影像瓦片、城市标记、图片图标、三维高空标记、区域与文字标注的完整用法：
+`samples/Globe3D.Demo` demonstrates imagery, city markers, image icons, 3D altitude markers, regions,
+labels, the performance panel and flat mode.
 
-### 配置自己的地图密钥
+### Configure your own map keys
 
-示例工程**不包含任何地图服务密钥**，在线底图需要你使用自己的 key：
+The sample contains **no map service credentials**:
 
-1. 复制 `samples/Globe3D.Demo/keys.sample.json` 为同目录下的 `keys.local.json`
-2. 填入自己的天地图 `tk` / 星图地球 `token`（支持数组，多个 key 会在启动时随机轮换）
-3. 该文件已被 `.gitignore` 忽略，不会提交到仓库；也可用环境变量 `GLOBE3D_KEYS_FILE` 指向其它位置的配置文件
+1. Copy `samples/Globe3D.Demo/keys.sample.json` to `keys.local.json` in the same directory.
+2. Fill in your TianDiTu `tk` / GeovisEarth `token` values (arrays are supported by the sample).
+3. The file is git-ignored; `GLOBE3D_KEYS_FILE` can point to another location.
 
 ```json
 {
-  "tianditu": [ "你的天地图 tk" ],
-  "geovis": [ "你的星图地球 token" ]
+  "tianditu": [ "YOUR_TIANDITU_TK" ],
+  "geovis": [ "YOUR_GEOVIS_TOKEN" ]
 }
 ```
 
-未配置密钥时示例仍可运行（本地 MBTiles 与内置图层），但不会注册在线底图；请勿把填有密钥的
-`keys.local.json` 提交到仓库或随程序分发。
+The sample implements key rotation itself; the library provides no key-management API. Without keys
+the sample still runs with local MBTiles and its built-in layers.
 
+```bash
+dotnet run --project samples/Globe3D.Demo
+dotnet run --project samples/Globe3D.Demo -- --basemap=geovis
+dotnet run --project samples/Globe3D.Demo -- --basemap=tianditu
+dotnet run --project samples/Globe3D.Demo -- --hover-test
+dotnet run --project samples/Globe3D.Demo -- --hit-test
+dotnet run --project samples/Globe3D.Demo -- --horizon-test
+dotnet run --project samples/Globe3D.Demo -- --street-test
+dotnet run --project samples/Globe3D.Demo -- --pole-test
+dotnet run --project samples/Globe3D.Demo -- --seam-test
+dotnet run --project samples/Globe3D.Demo -- --stats-test
+dotnet run --project samples/Globe3D.Demo -- --flat
+dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test
+dotnet run --project samples/Globe3D.Demo -- --orientation-test
+dotnet run --project samples/Globe3D.Demo -- --coordinate-test
 ```
-dotnet run --project samples/Globe3D.Demo                              # 默认（有本地 MBTiles 时优先用本地）
-dotnet run --project samples/Globe3D.Demo -- --basemap=geovis         # 星图地球在线影像（需配置密钥）
-dotnet run --project samples/Globe3D.Demo -- --basemap=tianditu       # 天地图在线影像（需配置密钥）
-dotnet run --project samples/Globe3D.Demo -- --hover-test             # 图片标记 + 接近提示 + 鼠标旁浮层
-dotnet run --project samples/Globe3D.Demo -- --hit-test               # 背面标记的命中回归（应查不到）
-dotnet run --project samples/Globe3D.Demo -- --horizon-test           # 倾斜视角查看分层 LOD
-dotnet run --project samples/Globe3D.Demo -- --seam-test              # 查看跨 180° 经线区域
-dotnet run --project samples/Globe3D.Demo -- --seam-close             # 贴地斜视时跨 180° 区域的半球裁剪
-dotnet run --project samples/Globe3D.Demo -- --deep-test              # 88 km 贴地视角
-dotnet run --project samples/Globe3D.Demo -- --street-test            # 3 km 街区级视角（深层级瓦片）
-dotnet run --project samples/Globe3D.Demo -- --pole-test              # 正对极点的极区填充
-dotnet run --project samples/Globe3D.Demo -- --stats-test             # 输出一次 [PERF] 性能快照到 demo.log
-dotnet run --project samples/Globe3D.Demo -- --flat                   # 二维平面模式
-dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test       # 平面/三维切换与平面平移回归
-```
 
-界面右上角的「底图」按钮可在本地 MBTiles、星图地球与天地图之间轮换；「性能面板」按钮控制
-左上角性能 HUD 的开关；「平面模式」按钮在二维 Web 墨卡托平面与三维地球之间切换。状态栏会显示
-当前帧的层级范围、绘制瓦片数、纹理数与失败数，demo.log 中还会记录各层级的瓦片分布、图标解码结果与
-命中回归结果。
+## Native AOT
 
-## Native AOT 与裁剪
-
-控件不使用反射、`dynamic`、运行时 XAML 解析或序列化框架，库已开启 `IsAotCompatible`
-（AOT/裁剪分析器零告警，IL2026/IL2067/IL3050 已提升为编译错误），可直接被 Native AOT 应用引用。
-
-示例工程已启用 `PublishAot`，一条命令即可发布自包含原生程序：
+The library is AOT/trim analyser clean (`IsAotCompatible=true`, IL2026/IL2067/IL3050 are errors).
+The sample enables `PublishAot`:
 
 ```bash
 dotnet publish samples/Globe3D.Demo -c Release -r win-x64
 ```
 
-产物位于 `samples/Globe3D.Demo/bin/Release/net8.0/win-x64/publish/`，其中：
+The output contains the native executable plus ANGLE (`av_libglesv2.dll`), SQLite
+(`e_sqlite3.dll`), Skia and HarfBuzz native libraries. Windows Native AOT requires the MSVC C++
+toolchain. See [docs/native-aot.md](docs/native-aot.md).
 
-- `Globe3D.Demo.exe`：原生可执行文件（约 33 MB，运行时不依赖 .NET）
-- `av_libglesv2.dll`：ANGLE（OpenGL ES 转 D3D11）
-- `e_sqlite3.dll`：MBTiles（SQLite）原生库
-- `libSkiaSharp.dll`、`libHarfBuzzSharp.dll`：文字与位图渲染
-
-Windows 上 Native AOT 需要 MSVC C++ 工具链（Visual Studio「使用 C++ 的桌面开发」工作负载）。
-已在 AOT 产物上验证：四叉树 LOD 与深缩放、街区/极点/跨经线视角、MBTiles 与在线瓦片及磁盘缓存、
-PNG/JPG/GIF/SVG 图标、区域与标注、标记悬停与命中回归、性能面板统计，均与 JIT 版本一致。
-
-> 若本地存在 `samples/Globe3D.Demo/keys.local.json`，它会随发布复制到输出目录；分发示例程序前
-> 请将其删除或移至 `%LocalAppData%\Globe3D\keys.local.json`，避免泄露你的地图密钥。
-
-使用注意：
-
-- 自定义 XAML 请保持编译绑定（`AvaloniaUseCompiledBindingsByDefault=true`），
-  `{Binding}` 改为 `{CompiledBinding}`，避免依赖裁剪后的反射入口
-- 不要在运行时用 `XamlReader` 加载未编译的 XAML 资源
-- 应用自身若使用反射/动态代码，仍需按常规 AOT 方式标注；控件本身无需额外配置
-
-详细说明（英文）见 [docs/native-aot.md](docs/native-aot.md)。
-
-## 打包与发布
+## Packaging and release
 
 ```bash
-# 生成 nupkg 与 snupkg（输出到 src/Globe3D.Avalonia/bin/Release）
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
-# 发布到 nuget.org（需要先配置 API Key）
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.1.1.1.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.0.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 
-仓库地址已在 `Globe3D.Avalonia.csproj` 的 `RepositoryUrl` / `PackageProjectUrl` 中配置，
-发布前请按 [语义化版本](https://semver.org/lang/zh-CN/) 更新 `Version` 与 [CHANGELOG.md](CHANGELOG.md)。
+`RepositoryUrl` and `PackageProjectUrl` are configured in the project file. Update
+[CHANGELOG.md](CHANGELOG.md) and the version for each release.
 
-## 版本记录
+## Version history
 
-见 [CHANGELOG.md](CHANGELOG.md)。
+See [CHANGELOG.md](CHANGELOG.md).
 
-## 许可
+## License
 
 [MIT](LICENSE) © 2026 daipeng0809

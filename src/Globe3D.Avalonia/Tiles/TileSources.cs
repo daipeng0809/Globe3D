@@ -20,13 +20,15 @@ public sealed class CompositeTileSource : ITileSource, IDisposable
         var minZoom = _sources.Min(s => s.Info.MinZoom);
         var maxZoom = _sources.Max(s => s.Info.MaxZoom);
         Bounds = MergeBounds(_sources);
+        var systems = _sources.Select(s => s.Info.CoordinateSystem).Distinct().ToArray();
         Info = new TileSourceInfo
         {
             Name = string.Join(" + ", _sources.Select(s => s.Info.Name)),
             MinZoom = minZoom,
             MaxZoom = maxZoom,
             Bounds = Bounds,
-            Format = _sources.Select(s => s.Info.Format).FirstOrDefault(f => !string.IsNullOrEmpty(f))
+            Format = _sources.Select(s => s.Info.Format).FirstOrDefault(f => !string.IsNullOrEmpty(f)),
+            CoordinateSystem = systems.Length == 1 ? systems[0] : CoordinateSystem.Unknown
         };
     }
 
@@ -97,6 +99,11 @@ public sealed class CompositeTileSource : ITileSource, IDisposable
 /// <summary>
 /// 在线 XYZ 瓦片源，支持磁盘缓存。URL 模板中可使用 {z}、{x}、{y} 与 {-y}（TMS 行号）。
 /// </summary>
+/// <remarks>
+/// 不提供任何服务商专用工厂：服务地址、key 轮换等由调用方自行拼装 URL。
+/// 未显式指定 <c>coordinateSystem</c> 时，会根据 URL / 名称推断常见服务商（高德/腾讯 → GCJ-02，
+/// 百度 → BD-09，其余按 WGS84），并通过 <see cref="TileSourceInfo.CoordinateSystem"/> 暴露。
+/// </remarks>
 public sealed class HttpTileSource : ITileSource, IDisposable
 {
     private readonly string _urlTemplate;
@@ -106,7 +113,7 @@ public sealed class HttpTileSource : ITileSource, IDisposable
 
     public HttpTileSource(string urlTemplate, string? cacheDirectory = null, HttpMessageHandler? handler = null,
         int minZoom = 0, int maxZoom = 19, string? userAgent = null, TimeSpan? timeout = null,
-        string? name = null)
+        string? name = null, CoordinateSystem? coordinateSystem = null)
     {
         if (string.IsNullOrWhiteSpace(urlTemplate))
             throw new ArgumentException("urlTemplate 不能为空", nameof(urlTemplate));
@@ -143,7 +150,8 @@ public sealed class HttpTileSource : ITileSource, IDisposable
                 ? urlTemplate
                 : "https://localhost/" + urlTemplate).Host,
             MinZoom = minZoom,
-            MaxZoom = maxZoom
+            MaxZoom = maxZoom,
+            CoordinateSystem = coordinateSystem ?? CoordinateSystemDetector.Detect(urlTemplate, name)
         };
     }
 
@@ -228,72 +236,17 @@ public sealed class HttpTileSource : ITileSource, IDisposable
     }
 }
 
-/// <summary>内置在线底图服务商。</summary>
-public enum OnlineMapProvider
-{
-    /// <summary>天地图（国家地理信息公共服务平台），瓦片为 JPEG/PNG。</summary>
-    Tianditu,
-
-    /// <summary>星图地球开放平台，瓦片支持 WebP / JPEG。</summary>
-    GeovisEarth
-}
-
 /// <summary>
-/// 内置在线瓦片源的快捷工厂。地图 key/token 由调用方传入，控件本身不内置任何凭证。
+/// 通用在线瓦片工厂。只接收 URL 模板，不绑定任何具体地图服务商；
+/// 服务地址、key 管理、多 key 轮换均由调用方自行实现。
 /// </summary>
-/// <remarks>
-/// 跨平台说明：天地图返回 JPEG/PNG，所有平台的解码器都能直接使用；星图地球默认请求
-/// <c>format=jpeg</c>，避免个别平台缺少 WebP 解码支持时出现空白瓦片。
-/// </remarks>
+/// <remarks>与直接 <c>new HttpTileSource(...)</c> 等价，保留此入口用于统一的源创建位置。</remarks>
 public static class OnlineTileSources
 {
-    /// <summary>天地图卫星影像（img_w，Web 墨卡托）。</summary>
-    public static ITileSource CreateTiandituSatellite(string token, string? cacheDirectory = null, int maxZoom = 18)
-        => CreateTianditu(token, "img", "天地图卫星影像", cacheDirectory, maxZoom);
-
-    /// <summary>天地图矢量底图（vec_w，Web 墨卡托）。</summary>
-    public static ITileSource CreateTiandituVector(string token, string? cacheDirectory = null, int maxZoom = 18)
-        => CreateTianditu(token, "vec", "天地图矢量底图", cacheDirectory, maxZoom);
-
-    private static ITileSource CreateTianditu(string token, string layer, string name,
-        string? cacheDirectory, int maxZoom)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-            throw new ArgumentException("天地图 tk 不能为空", nameof(token));
-
-        // 官方建议按 t0..t7 分域名并发，这里固定使用一个子域，避免每家服务都去轮询
-        var subdomain = "t" + Random.Shared.Next(8);
-        var url = $"https://{subdomain}.tianditu.gov.cn/{layer}_w/wmts" +
-                  $"?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
-                  $"&LAYER={layer}&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles" +
-                  "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=" + token;
-
-        return new HttpTileSource(url, cacheDirectory, maxZoom: maxZoom, name: name,
-            userAgent: "Globe3D.Avalonia/1.0");
-    }
-
-    /// <summary>
-    /// 星图地球卫星影像（pj/base/v1/2025）。默认使用 JPEG，兼容不提供 WebP 解码的平台。
-    /// </summary>
-    public static ITileSource CreateGeovisEarth(string token, string? cacheDirectory = null,
-        int maxZoom = 18, bool preferWebP = false)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-            throw new ArgumentException("星图地球 token 不能为空", nameof(token));
-
-        var format = preferWebP ? "webp" : "jpeg";
-        var url = $"https://api.open.geovisearth.com/pj/base/v1/2025/{{z}}/{{x}}/{{y}}" +
-                  $"?format={format}&tmsIds=w&token={token}";
-
-        return new HttpTileSource(url, cacheDirectory, maxZoom: maxZoom, name: "星图地球卫星影像",
-            userAgent: "Globe3D.Avalonia/1.0");
-    }
-
-    /// <summary>按服务商创建默认的卫星影像瓦片源。</summary>
-    public static ITileSource Create(OnlineMapProvider provider, string token,
-        string? cacheDirectory = null, int maxZoom = 18) => provider switch
-    {
-        OnlineMapProvider.Tianditu => CreateTiandituSatellite(token, cacheDirectory, maxZoom),
-        _ => CreateGeovisEarth(token, cacheDirectory, maxZoom)
-    };
+    /// <summary>创建一个通用 HTTP XYZ 瓦片源。</summary>
+    public static HttpTileSource Create(string urlTemplate, string? cacheDirectory = null,
+        HttpMessageHandler? handler = null, int minZoom = 0, int maxZoom = 19,
+        string? userAgent = null, TimeSpan? timeout = null, string? name = null,
+        CoordinateSystem? coordinateSystem = null) =>
+        new(urlTemplate, cacheDirectory, handler, minZoom, maxZoom, userAgent, timeout, name, coordinateSystem);
 }

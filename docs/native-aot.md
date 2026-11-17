@@ -58,6 +58,7 @@ build; results matched:
 | `--hover-test` | Marker hover and nearest-marker query | `nearest=北京 distance=0.0` |
 | `--hit-test` | Back-side marker hit regression | correctly returns `null` before and after repaint |
 | `--basemap=geovis --stats-test` | Online HTTP tiles + disk cache + `HttpClient` | `net≈280 KB/s (69 t/s)`, cache reads on disk, exit code 0 |
+| `--coordinate-test` | WGS84 / GCJ-02 / BD-09 / Web Mercator conversion and URL detection | deltas ≤ 1e-6, AMap detected as `Gcj02`, Baidu as `Bd09`, exit code 0 |
 
 PNG / JPG / GIF / SVG marker decoding, region and label drawing, the render loop, and the
 performance HUD all behave identically to the framework-dependent build.

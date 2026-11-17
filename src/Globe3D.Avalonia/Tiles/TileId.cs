@@ -56,6 +56,13 @@ public sealed class TileSourceInfo
     public GeoBounds? Bounds { get; init; }
 
     public string? Format { get; init; }
+
+    /// <summary>
+    /// 瓦片数据的坐标系（默认 WGS84）。控件始终按 WGS84 / Web 墨卡托瓦片索引渲染；
+    /// 若该值为 <see cref="CoordinateSystem.Gcj02"/> 或 <see cref="CoordinateSystem.Bd09"/>，
+    /// 说明数据本身带偏移，需由调用方用 <see cref="CoordinateConverter"/> 处理坐标。
+    /// </summary>
+    public CoordinateSystem CoordinateSystem { get; init; } = CoordinateSystem.Wgs84;
 }
 
 /// <summary>瓦片数据源。实现需保证线程安全，可被多个后台线程并发调用。</summary>
