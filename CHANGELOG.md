@@ -3,6 +3,18 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.2] - 2026-11-17
+
+### 修复
+
+- NuGet README 顶部图标改用 Markdown 图片，避免 NuGet 把 `<img>` HTML 当作转义文本显示
+- README 图标/预览图/平面模式对比图改用 jsDelivr CDN，提升 NuGet 与国内网络下的图片可访问性；
+  README 顶部新增 128×128 图标 `assets/globe3d-icon-128.png`
+
+### 变更
+
+- 版本号提升为 2.0.2
+
 ## [2.0.1] - 2026-11-17
 
 ### 修复

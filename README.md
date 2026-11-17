@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/daipeng0809/Globe3D/master/assets/globe3d-icon.png" width="112" height="112" alt="Globe3D.Avalonia icon">
+![Globe3D.Avalonia icon](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/assets/globe3d-icon-128.png)
 
 # Globe3D.Avalonia
 
@@ -14,7 +14,7 @@ A real-time 3D globe control for Avalonia 12. It renders imagery tiles, a proced
 atmospheric scattering with OpenGL ES 3.0, and overlays 3D markers (PNG/JPG/GIF/SVG icons), region
 polygons and text labels. The same control can switch to a flat 2D Web Mercator map at runtime.
 
-![Preview](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/screenshot.png)
+![Preview](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/screenshot.png)
 
 ## Table of contents
 
@@ -84,13 +84,13 @@ polygons and text labels. The same control can switch to a flat 2D Web Mercator 
 ## Installation
 
 ```bash
-dotnet add package Globe3D.Avalonia --version 2.0.1
+dotnet add package Globe3D.Avalonia --version 2.0.2
 ```
 
 Or in a project file:
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.0.1" />
+<PackageReference Include="Globe3D.Avalonia" Version="2.0.2" />
 ```
 
 XAML namespace:
@@ -272,7 +272,7 @@ In flat mode:
 - Regions crossing the antimeridian are split into two parts.
 - The same tile LOD, markers, regions, labels, hover, click and `FindNearestMarker` APIs are used.
 
-![3D vs flat with Heading/Pitch](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/flat-mode-heading-pitch.png)
+![3D vs flat with Heading/Pitch](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/flat-mode-heading-pitch.png)
 
 See [docs/flat-mode.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/flat-mode.md) for details and implementation notes.
 
@@ -487,7 +487,7 @@ toolchain. See [docs/native-aot.md](https://github.com/daipeng0809/Globe3D/blob/
 ```bash
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.1.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.2.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 

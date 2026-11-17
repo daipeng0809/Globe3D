@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/daipeng0809/Globe3D/master/assets/globe3d-icon.png" width="112" height="112" alt="Globe3D.Avalonia 图标">
+![Globe3D.Avalonia 图标](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/assets/globe3d-icon-128.png)
 
 # Globe3D.Avalonia
 
@@ -14,7 +14,7 @@
 并在其上叠加三维标记点（支持 png/jpg/gif/svg 图标）、区域多边形与文字标注，
 内置瓦片分层 LOD 与完整的鼠标交互。
 
-![预览](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/screenshot.png)
+![预览](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/screenshot.png)
 
 ## 目录
 
@@ -80,7 +80,7 @@ dotnet add package Globe3D.Avalonia
 或直接在工程中引用：
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.0.1" />
+<PackageReference Include="Globe3D.Avalonia" Version="2.0.2" />
 ```
 
 XAML 命名空间：
@@ -277,7 +277,7 @@ globe.IsFlatMode = false;  // 恢复三维地球
 - `Pitch` / `Heading` 在平面模式下不参与投影：地图保持正北向上、不做旋转/倾斜；两者数值保留，切回三维后生效
 - 英文说明与 3D/平面同角度对比截图见 [docs/flat-mode.md](docs/flat-mode.md)
 
-![3D/平面模式 Heading/Pitch 对比](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/flat-mode-heading-pitch.png)
+![3D/平面模式 Heading/Pitch 对比](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/flat-mode-heading-pitch.png)
 
 ## 数据源
 
@@ -531,7 +531,7 @@ PNG/JPG/GIF/SVG 图标、区域与标注、标记悬停与命中回归、性能�
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
 # 发布到 nuget.org（需要先配置 API Key）
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.1.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.2.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 
