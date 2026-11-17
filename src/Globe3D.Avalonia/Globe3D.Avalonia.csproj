@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <RootNamespace>Globe3D.Avalonia</RootNamespace>
+    <AssemblyName>Globe3D.Avalonia</AssemblyName>
+
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- 库本身按 AOT/裁剪友好方式实现：开启分析器，保证引用方发布 Native AOT 时不出现反射告警 -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- 把裁剪/AOT 诊断提升为错误，避免后续改动静默引入反射依赖（当前为零告警） -->
+    <WarningsAsErrors>$(WarningsAsErrors);IL2026;IL2067;IL3050</WarningsAsErrors>
+
+    <Version>1.1.0</Version>
+    <Authors>daipeng0809</Authors>
+    <Description>面向 Avalonia 的实时三维地球控件：影像瓦片、程序化星空、大气散射、区域与标注图层、三维标记点（支持 png/jpg/gif/svg 图标），支持鼠标交互，兼容 Native AOT。</Description>
+    <PackageId>Globe3D.Avalonia</PackageId>
+    <PackageTags>avalonia;3d;globe;earth;map;tiles;mbtiles;opengl;gis;marker;aot;nativeaot;trimming</PackageTags>
+    <RepositoryUrl>https://github.com/daipeng0809/Globe3D.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/daipeng0809/Globe3D</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>详见仓库根目录的 CHANGELOG.md。</PackageReleaseNotes>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.6" />
+    <PackageReference Include="Silk.NET.OpenGLES" Version="2.22.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <!-- NuGet 包内附带说明文件：README 作为包描述页，CHANGELOG/License 跟包发布 -->
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\CHANGELOG.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

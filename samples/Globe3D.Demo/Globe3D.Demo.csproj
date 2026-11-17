@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Globe3D.Demo</RootNamespace>
+    <AssemblyName>Globe3D.Demo</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <RollForward>LatestMajor</RollForward>
+
+    <!-- 示例直接以 Native AOT 方式发布：dotnet publish samples/Globe3D.Demo -c Release -r win-x64
+         PublishAot 已自动启用 AOT/裁剪分析器（EnableAotAnalyzer / EnableTrimAnalyzer） -->
+    <PublishAot>true</PublishAot>
+    <!-- 内建 COM 互操作只对 Windows 有意义（Avalonia 的剪贴板/拖放等） -->
+    <BuiltInComInteropSupport Condition="$([MSBuild]::IsOSPlatform('Windows'))">true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Globe3D.Avalonia\Globe3D.Avalonia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="keys.sample.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- 本地密钥文件不入库；存在时随构建/发布复制到输出目录，注意不要随成品分发 -->
+    <None Update="keys.local.json" Condition="Exists('keys.local.json')"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

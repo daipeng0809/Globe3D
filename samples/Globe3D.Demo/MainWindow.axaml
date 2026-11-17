@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:g="clr-namespace:Globe3D.Avalonia;assembly=Globe3D.Avalonia"
+        x:Class="Globe3D.Demo.MainWindow"
+        Title="Globe3D 三维地球控件演示"
+        Width="1280" Height="840"
+        Background="#04060E">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <Border Grid.Row="0" Background="#E6101824" Padding="16,10">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="2">
+          <TextBlock Text="Globe3D.Avalonia" FontSize="15" FontWeight="SemiBold" Foreground="#EAF3FF" />
+          <TextBlock x:Name="StatusText" FontSize="11" Foreground="#8FB4D8" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button x:Name="FlyButton" Content="飞到上海" FontSize="12" Padding="12,5" />
+          <Button x:Name="BasemapButton" Content="切换底图" FontSize="12" Padding="12,5" />
+          <Button x:Name="StatsButton" Content="性能面板：开" FontSize="12" Padding="12,5" />
+          <Button x:Name="RotateButton" Content="自动旋转" FontSize="12" Padding="12,5" />
+          <Button x:Name="ResetButton" Content="复位视角" FontSize="12" Padding="12,5" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1">
+      <g:GlobeView x:Name="Globe" />
+
+      <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="16"
+              Background="#B3101824" Padding="12,8" CornerRadius="6"
+              IsHitTestVisible="False">
+        <TextBlock Foreground="#9FC4E8" FontSize="11"
+                   Text="左键拖拽旋转 · 右键拖拽倾斜 · 滚轮缩放 · 双击飞近 · 点击标记/地表查看坐标" />
+      </Border>
+
+      <Border x:Name="HintBorder" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="16"
+              Background="#B3101824" Padding="12,8" CornerRadius="6"
+              IsHitTestVisible="False" IsVisible="False">
+        <TextBlock x:Name="HintText" Foreground="#FFD79A" FontSize="12" />
+      </Border>
+
+      <!-- 鼠标靠近标记点时跟随鼠标的自定义内容（演示 GlobePointerMoved 用法） -->
+      <Border x:Name="MouseTip" HorizontalAlignment="Left" VerticalAlignment="Top"
+              Background="#E60E1725" BorderBrush="#5AC8FF" BorderThickness="1" CornerRadius="6"
+              Padding="10,7" IsHitTestVisible="False" IsVisible="False">
+        <StackPanel Spacing="2">
+          <TextBlock x:Name="MouseTipTitle" Foreground="#EAF3FF" FontSize="12" FontWeight="SemiBold" />
+          <TextBlock x:Name="MouseTipDetail" Foreground="#8FB4D8" FontSize="11" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+  </Grid>
+</Window>
