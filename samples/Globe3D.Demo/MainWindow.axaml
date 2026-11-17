@@ -6,7 +6,7 @@
         Width="1280" Height="840"
         Background="#04060E">
 
-  <Grid RowDefinitions="Auto,*">
+  <Grid RowDefinitions="Auto,Auto,*">
 
     <Border Grid.Row="0" Background="#E6101824" Padding="16,10">
       <Grid ColumnDefinitions="*,Auto">
@@ -26,17 +26,37 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1">
+    <!-- 矢量图层与测量工具 -->
+    <Border Grid.Row="1" Background="#C00B1420" Padding="16,6">
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="工具" FontSize="11" Foreground="#7094B8" VerticalAlignment="Center" />
+        <Button x:Name="ScaleButton" Content="比例尺：开" FontSize="12" Padding="10,3" />
+        <Button x:Name="VectorLayerButton" Content="矢量图层：开" FontSize="12" Padding="10,3" />
+        <Border Width="1" Background="#2A3E56" Margin="4,2" />
+        <Button x:Name="DistanceButton" Content="距离" FontSize="12" Padding="10,3" />
+        <Button x:Name="PolygonButton" Content="多边形" FontSize="12" Padding="10,3" />
+        <Button x:Name="CircleButton" Content="圆形" FontSize="12" Padding="10,3" />
+        <Button x:Name="SquareButton" Content="方形" FontSize="12" Padding="10,3" />
+        <Button x:Name="ClearMeasureButton" Content="清除测量" FontSize="12" Padding="10,3" />
+        <Border Width="1" Background="#2A3E56" Margin="4,2" />
+        <Button x:Name="ZoomOutButton" Content="缩小" FontSize="12" Padding="10,3" />
+        <Button x:Name="ZoomInButton" Content="放大" FontSize="12" Padding="10,3" />
+        <TextBlock x:Name="ToolHintText" FontSize="11" Foreground="#8FB4D8" VerticalAlignment="Center"
+                   Text="单击落点 · 双击/右键完成 · Esc 取消" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="2">
       <g:GlobeView x:Name="Globe" />
 
-      <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="16"
+      <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="16,0,16,56"
               Background="#B3101824" Padding="12,8" CornerRadius="6"
               IsHitTestVisible="False">
         <TextBlock Foreground="#9FC4E8" FontSize="11"
-                   Text="左键拖拽旋转 · 右键拖拽倾斜 · 滚轮缩放 · 双击飞近 · 点击标记/地表查看坐标" />
+                   Text="左键拖拽旋转 · 右键拖拽倾斜 · 滚轮缩放 · 双击飞近 · 点击标记/地表查看坐标 · 测量工具见上方工具栏" />
       </Border>
 
-      <Border x:Name="HintBorder" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="16"
+      <Border x:Name="HintBorder" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="16,0,16,56"
               Background="#B3101824" Padding="12,8" CornerRadius="6"
               IsHitTestVisible="False" IsVisible="False">
         <TextBlock x:Name="HintText" Foreground="#FFD79A" FontSize="12" />

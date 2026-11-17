@@ -1,4 +1,4 @@
-![Globe3D.Avalonia 图标](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/assets/globe3d-icon-128.png)
+![Globe3D.Avalonia 图标](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/assets/globe3d-icon-128.png)
 
 # Globe3D.Avalonia
 
@@ -14,7 +14,7 @@
 并在其上叠加三维标记点（支持 png/jpg/gif/svg 图标）、区域多边形与文字标注，
 内置瓦片分层 LOD 与完整的鼠标交互。
 
-![预览](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/screenshot.png)
+![预览](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/screenshot.png)
 
 ## 目录
 
@@ -24,8 +24,10 @@
 - [快速开始](#快速开始)
   - [最简用法](#最简用法)
   - [添加标记、区域与标注](#添加标记区域与标注)
+  - [矢量图形与测量工具](#矢量图形与测量工具)
   - [图片图标标记](#图片图标标记)
   - [相机控制](#相机控制)
+  - [缩放级别](#缩放级别)
   - [事件与命中查询](#事件与命中查询)
   - [性能面板](#性能面板)
   - [平面模式](#平面模式)
@@ -54,10 +56,13 @@
 | 图片图标 | png / jpg / gif / bmp / webp / svg 直接作为图标，可单独设置缩放与像素偏移                                      |
 | 接近提示 | 鼠标靠近标记点时高亮并在鼠标旁弹出提示，可按标记点关闭                                                         |
 | 区域 | 经纬度顶点自动做球面细分，支持填充与描边                                                                       |
+| 矢量图形 | 圆形、方形、线条/折线、多边形，支持镂空、边框颜色/宽度/虚线，图层可整体显隐                                     |
+| 测量工具 | 比例尺；距离测量与多边形/圆形/方形面积测量，自动在图上标注长度与面积                                           |
 | 文字标注 | 使用 Avalonia 矢量绘制，中文清晰，自动防重叠避让                                                               |
 | 交互 | 左键旋转、右键倾斜、滚轮缩放、双击飞行、标记/地表拾取                                                          |
 | 渲染调度 | 按需渲染，静止时 CPU/GPU 占用归零                                                                              |
 | 平面模式 | `IsFlatMode` 在三维地球与二维 Web 墨卡托平面间切换，支持平移/缩放、瓦片 LOD、标记/区域/标注                    |
+| 缩放级别 | `GetZoomLevel` / `ZoomToLevel` 按瓦片层级自动换算镜头高度，支持最小/最大级别限制与屏幕显示                         |
 | 性能面板 | 一键开启的性能 HUD：0-100 流畅度评分、帧率/刷新率/帧耗时、瓦片与加载队列、MBTiles/磁盘缓存与网络的实时读取速度 |
 
 ## 环境与兼容性
@@ -80,7 +85,7 @@ dotnet add package Globe3D.Avalonia
 或直接在工程中引用：
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.0.2" />
+<PackageReference Include="Globe3D.Avalonia" Version="2.1.0" />
 ```
 
 XAML 命名空间：
@@ -145,6 +150,93 @@ labelLayer.Labels.Add(new GlobeLabel
 globe.Layers.Add(labelLayer);
 ```
 
+### 矢量图形与测量工具
+
+`GlobeLayer.Vectors` 用于放矢量图形，`GlobeLayer.IsVisible` 控制整层显示/隐藏（修改后自动重绘）：
+
+```csharp
+var vectorLayer = new GlobeLayer("矢量图形");
+
+// 圆形（圆心 + 半径），半透明填充
+vectorLayer.Vectors.Add(new GlobeCircleVector
+{
+    Center = new GeoPoint(39.9042, 116.4074),
+    RadiusMeters = 260_000,
+    Fill = new SolidColorBrush(Color.Parse("#2E5AC8FF")),
+    Stroke = Brushes.DeepSkyBlue,
+    StrokeThickness = 2,
+    Label = "圆形 · 260 km"
+});
+
+// 方形（中心 + 边长 + 旋转角）；Fill = null 即镂空，只画边框
+vectorLayer.Vectors.Add(new GlobeSquareVector
+{
+    Center = new GeoPoint(31.2304, 121.4737),
+    SideMeters = 300_000,
+    Heading = 20,
+    Fill = null,
+    Stroke = Brushes.Orange,
+    DashStyle = DashStyle.Dash,
+    Label = "方形（镂空）"
+});
+
+// 多边形（闭合）；折线/线条用 GlobePolylineVector（Closed = false）
+var polygon = new GlobePolygonVector
+{
+    Fill = new SolidColorBrush(Color.Parse("#3381C784")),
+    Stroke = Brushes.MediumSeaGreen
+};
+polygon.AddPoint(28, 100).AddPoint(34, 98).AddPoint(36, 109);
+vectorLayer.Vectors.Add(polygon);
+
+var line = new GlobePolylineVector { Stroke = Brushes.Khaki, DashStyle = DashStyle.Dot };
+line.AddPoint(23.13, 113.26).AddPoint(30.57, 104.07).AddPoint(34.34, 108.94);
+vectorLayer.Vectors.Add(line);
+
+globe.Layers.Add(vectorLayer);
+vectorLayer.IsVisible = false;   // 整层隐藏，立即生效；改回 true 恢复
+```
+
+修改 `GlobeLayer.IsVisible` 会立即重绘，无需手动调用 `Refresh()`；但修改单个图形的颜色、半径、
+顶点等属性后，需要调用一次 `globe.Refresh()`（控件按需渲染，静止时不会自动重画）。
+也可以继承 `GlobeVector` 并重写 `BuildRing()` / `IsClosedRing` 实现自定义形状，
+大圆插值、地平线裁剪与投影由控件统一处理。
+
+| 矢量图形属性 | 说明 |
+| --- | --- |
+| `GlobeCircleVector` | `Center` + `RadiusMeters`，按球面大圆生成边界 |
+| `GlobeSquareVector` | `Center` + `SideMeters` + `Heading`（相对正北的旋转角） |
+| `GlobePolylineVector` / `GlobePolygonVector` | `Points` 顶点列表；`Closed=false` 为线条/折线，`true` 为多边形 |
+| `Fill` | 填充画刷；`null` 表示镂空 |
+| `Stroke` / `StrokeThickness` / `DashStyle` | 边框颜色、宽度与虚线样式 |
+| `Label` / `LabelForeground` / `LabelFontSize` | 图形中心标签 |
+| `IsVisible` | 单个图形的显隐 |
+
+比例尺与测量工具：
+
+```csharp
+globe.ShowScaleBar = true;                                 // 视口角落显示比例尺
+globe.ScaleBarPlacement = GlobeScaleBarPlacement.BottomRight;
+
+globe.ActiveTool = GlobeTool.Distance;                     // 距离：单击落点，双击/右键完成
+// GlobeTool.AreaPolygon / AreaCircle / AreaSquare 为多边形、圆形、方形面积
+// 圆形/方形：第一次单击定中心，移动后第二次单击定半径/边界点
+
+globe.MeasurementCompleted += (_, e) =>
+    Console.WriteLine($"{e.Measurement.Tool}: {e.Measurement.Text}");
+
+globe.ClearMeasurements();                                 // 清除全部测量结果
+globe.CancelMeasurement();                                 // 取消当前草稿（Esc 同样生效，需控件持有键盘焦点）
+
+// 也可以不经过鼠标交互，直接追加测量结果；不会清除当前交互草稿
+var m = globe.AddMeasurement(GlobeTool.Distance,
+    new GeoPoint(39.9042, 116.4074), new GeoPoint(31.2304, 121.4737));
+```
+
+`Geodesy` 提供同一套球面计算（`Distance` / `Destination` / `CircleRing` / `SquareRing` /
+`PolygonArea` / `CircleArea` / `FormatDistance` / `FormatArea`），可用于自定义标注或核对结果。
+面积按较小一侧报告：包住极点或超过半球的多边形会取补集（结果不大于 2πR²）。
+
 ### 图片图标标记
 
 任何 Avalonia `IImage` 都能当作标记图标；也可以只给文件路径，控件会按需加载并缓存。
@@ -208,6 +300,30 @@ globe.CenterLongitude = 108;
 globe.Altitude = 9_500_000;                         // 离地高度（米）
 globe.Pitch = 25;                                   // 俯仰 0-88 度
 ```
+
+### 缩放级别
+
+```csharp
+double level = globe.GetZoomLevel();                        // 当前缩放级别（约等于 256px 瓦片层级）
+globe.ZoomToLevel(8);                                       // 按瓦片层级自动计算镜头高度
+globe.ZoomToLevel(9, TimeSpan.FromMilliseconds(400));       // 平滑缩放
+globe.ZoomLevel = 8;                                        // 等价写法
+
+globe.MinZoomLevel = 3;                                     // 约束 ZoomToLevel / ZoomLevel / 滚轮
+globe.MaxZoomLevel = 15;
+
+globe.ShowZoomLevel = true;                                 // 视口角落显示 Z 8.4
+globe.ZoomLevelPlacement = GlobeScaleBarPlacement.BottomRight;
+```
+
+- 三维模式按当前俯仰角、中心纬度与视口物理像素高度迭代求解镜头高度，使设定级别与实际显示级别一致；
+  平面模式为解析换算。
+- `MinZoomLevel` / `MaxZoomLevel` 与 `MinAltitude` / `MaxAltitude` 同时生效，更严格者优先；
+  直接设置 `Altitude` / `JumpTo` / `FlyTo` 仍只受高度限制。
+- `ZoomLevel` 是实时计算值，不参与 Avalonia 属性变更通知；实时显示用 `ShowZoomLevel`，监听变化用 `CameraChanged`。
+- 控件尚未完成布局时调用 `ZoomToLevel` 会暂存，首次渲染（GL 已测出物理像素尺寸）后自动应用。
+
+详细公式与限制说明见 [docs/zoom-level.md](docs/zoom-level.md)（英文）。
 
 ### 事件与命中查询
 
@@ -277,7 +393,7 @@ globe.IsFlatMode = false;  // 恢复三维地球
 - `Pitch` / `Heading` 在平面模式下不参与投影：地图保持正北向上、不做旋转/倾斜；两者数值保留，切回三维后生效
 - 英文说明与 3D/平面同角度对比截图见 [docs/flat-mode.md](docs/flat-mode.md)
 
-![3D/平面模式 Heading/Pitch 对比](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.0.2/docs/flat-mode-heading-pitch.png)
+![3D/平面模式 Heading/Pitch 对比](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/flat-mode-heading-pitch.png)
 
 ## 数据源
 
@@ -363,9 +479,11 @@ globe.TileSource = new CompositeTileSource(
 | --- | --- |
 | 左键拖拽 | 旋转地球；松手瞬间仍在移动时带惯性，拖到位置停稳后再松手不滑动 |
 | 右键拖拽 | 倾斜与航向 |
-| 滚轮 | 缩放 |
+| 滚轮 | 缩放（受 `MinAltitude` / `MaxAltitude` 与 `MinZoomLevel` / `MaxZoomLevel` 约束） |
 | 双击 | 飞行到点击位置 |
 | 单击 | 拾取最近的标记点，或返回地表经纬度 |
+| 测量工具 | 左键单击落点；距离/多边形双击或右键完成；圆形/方形第二次单击完成；Esc 取消草稿（需控件持有键盘焦点，点击地球后获得） |
+| 比例尺 | `ShowScaleBar` 开启后按当前相机自动换算为 1/2/5×10^n 的整齐刻度（m / km） |
 | 鼠标悬停 | 靠近开启提示的标记点时高亮并在鼠标旁显示内容 |
 | 平面模式 | 左键拖动平移、滚轮缩放、双击飞近；右键倾斜不生效 |
 
@@ -389,6 +507,12 @@ globe.TileSource = new CompositeTileSource(
 | `MarkerHitTolerance` | double | 6 | 单击命中标记点的额外容忍距离（像素） |
 | `AutoRotate` / `AutoRotateSpeed` | bool / double | false / 6 | 自动旋转 |
 | `IsFlatMode` | bool | false | 平面模式（二维 Web 墨卡托地图） |
+| `ZoomLevel` | double | 计算值 | 当前缩放级别，赋值即调用 `ZoomToLevel` |
+| `MinZoomLevel` / `MaxZoomLevel` | double | 0 / 24 | 缩放级别上下限（约束缩放接口与滚轮） |
+| `ShowZoomLevel` / `ZoomLevelPlacement` | bool / GlobeScaleBarPlacement | false / BottomRight | 缩放级别显示与位置 |
+| `ShowScaleBar` / `ScaleBarPlacement` | bool / GlobeScaleBarPlacement | false / BottomLeft | 比例尺开关与位置 |
+| `ActiveTool` | GlobeTool | None | 测量工具：距离、多边形/圆形/方形面积 |
+| `Measurements` | IReadOnlyList&lt;GlobeMeasurement&gt; | 空 | 已完成的测量结果 |
 | `ShowPerformancePanel` | bool | false | 显示性能面板（帧率、刷新率、瓦片与 IO 统计） |
 | `Layers` | AvaloniaList&lt;GlobeLayer&gt; | 空 | 图层集合，XAML 默认内容 |
 
@@ -407,6 +531,11 @@ globe.TileSource = new CompositeTileSource(
 - 纹理上传：GLES 3.0 核心不支持 `GL_BGRA`，解码后统一转换为 RGBA 通道顺序
 - 区域填充：顶点在三维球面上按大圆展开，填充前先裁剪到相机可见半球，
   跨 ±180° 经线与越过地平线的区域都能正确闭合，屏幕空间再做近平面与视口裁剪
+- 矢量与测量：与区域共用同一条绘制通道（大圆展开 + 可见半球裁剪 + 近平面/视口裁剪）；
+  开放折线只连可见点，平面模式按经度裁剪拆段并把交点钉在 ±180° 边界上，避免浮点越界折回另一侧；
+  面积用球面环面积公式（经度差按最短路径展开，包住极点的环按较小一侧归一），
+  圆形面积按球冠公式计算；比例尺用视口中心附近两点的真实地表距离估算米/像素，
+  因此三维倾斜视角与平面模式的刻度都随相机变化
 - 极区：墨卡托纬度截断在 ±85.05°，最北/最南一行把到极点的空隙摊到整行几何上，
   正对极点俯视时不会露出没有几何的圆盘状空洞
 - 文字与图标由 Avalonia 矢量绘制叠加在 GL 表面之上，中文渲染质量高且可避让
@@ -443,10 +572,16 @@ globe.TileSource = new CompositeTileSource(
 - `CoordinateSystem` 只是数据源元数据：控件始终按 WGS84 / Web 墨卡托瓦片索引渲染，
   不会自动对 GCJ-02 / BD-09 影像做几何纠正；使用这些源时需用 `CoordinateConverter` 处理数据，
   或改用 WGS84 影像
+- 测量结果按球面（大圆）计算：距离是地表测地线长度，多边形面积用球面环面积公式，
+  圆形/方形按等距大圆定义（圆心到边界距离恒定）；平面模式下同样按球面计算，
+  不随 Web 墨卡托的纬度拉伸变化
+- 多边形面积按较小一侧（≤ 2πR²）报告：包住极点或超过半球的多边形会得到其余面积；
+  距离/面积使用球面而非 WGS84 椭球，典型场景误差约 0.5%
 
 ## 示例工程
 
-`samples/Globe3D.Demo` 展示影像瓦片、城市标记、图片图标、三维高空标记、区域与文字标注的完整用法：
+`samples/Globe3D.Demo` 展示影像瓦片、城市标记、图片图标、三维高空标记、区域、矢量图形、
+比例尺与测量工具的完整用法：
 
 ### 配置自己的地图密钥
 
@@ -483,12 +618,17 @@ dotnet run --project samples/Globe3D.Demo -- --flat                   # 二维�
 dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test       # 平面/三维切换与平面平移回归
 dotnet run --project samples/Globe3D.Demo -- --orientation-test       # 平面模式下 Heading/Pitch 不生效、切回三维恢复
 dotnet run --project samples/Globe3D.Demo -- --coordinate-test        # 坐标系检测与 GCJ/BD/墨卡托转换回归
+dotnet run --project samples/Globe3D.Demo -- --vector-test            # 矢量图形/测量/比例尺与图层显隐回归
+dotnet run --project samples/Globe3D.Demo -- --zoom-level-test        # 缩放级别换算、上下限与平面模式回归
+dotnet run --project samples/Globe3D.Demo -- --geodesy-test           # 测地线距离/面积与极区多边形回归
+dotnet run --project samples/Globe3D.Demo -- --vector-seam-test       # 平面模式跨 ±180° 折线/多边形回归
 ```
 
 界面右上角的「底图」按钮可在本地 MBTiles、星图地球与天地图之间轮换；「性能面板」按钮控制
-左上角性能 HUD 的开关；「平面模式」按钮在二维 Web 墨卡托平面与三维地球之间切换。状态栏会显示
-当前帧的层级范围、绘制瓦片数、纹理数与失败数，demo.log 中还会记录各层级的瓦片分布、图标解码结果与
-命中回归结果。
+左上角性能 HUD 的开关；「平面模式」按钮在二维 Web 墨卡托平面与三维地球之间切换。第二行工具栏
+提供比例尺、矢量图层显隐，以及距离/多边形/圆形/方形测量与清除；「缩小/放大」按缩放级别平滑缩放。状态栏会显示当前帧的层级范围、
+绘制瓦片数、纹理数与失败数，demo.log 中还会记录各层级的瓦片分布、图标解码结果、测量结果与
+命中回归结果，以及 `[GEODESY]` 测地线数值。
 
 ## Native AOT 与裁剪
 
@@ -531,7 +671,7 @@ PNG/JPG/GIF/SVG 图标、区域与标注、标记悬停与命中回归、性能�
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
 # 发布到 nuget.org（需要先配置 API Key）
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.2.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.1.0.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 

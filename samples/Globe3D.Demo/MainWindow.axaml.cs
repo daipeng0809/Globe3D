@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private Border? _mouseTip;
     private TextBlock? _mouseTipTitle;
     private TextBlock? _mouseTipDetail;
+    private GlobeLayer? _vectorLayer;
+    private readonly Dictionary<Button, GlobeTool> _toolButtons = new();
 
     public MainWindow()
     {
@@ -185,6 +187,184 @@ public partial class MainWindow : Window
                 Globe.Pitch = 45d;
                 Globe.FlyTo(35d, 180d, 1_000_000d, TimeSpan.FromMilliseconds(1500));
             }, TimeSpan.FromSeconds(2));
+        }
+        else if (args.Contains("--vector-test"))
+        {
+            // 矢量图形 / 测量 / 比例尺回归：程序化添加测量结果，开关图层与二维/三维切换
+            DispatcherTimer.RunOnce(() =>
+            {
+                var distance = Globe.AddMeasurement(GlobeTool.Distance,
+                    new GeoPoint(39.9042d, 116.4074d), new GeoPoint(31.2304d, 121.4737d));
+                var polygon = Globe.AddMeasurement(GlobeTool.AreaPolygon,
+                    new GeoPoint(30d, 100d), new GeoPoint(36d, 105d), new GeoPoint(32d, 112d));
+                var circle = Globe.AddMeasurement(GlobeTool.AreaCircle,
+                    new GeoPoint(30d, 110d), new GeoPoint(34.5d, 110d));
+                var square = Globe.AddMeasurement(GlobeTool.AreaSquare,
+                    new GeoPoint(35d, 110d), new GeoPoint(38d, 111d));
+
+                var vectors = Globe.Layers.Sum(l => l.Vectors.Count);
+                Program.Log($"[VECTOR] layers={Globe.Layers.Count} vectors={vectors} " +
+                            $"distance={distance?.Text} polygon={polygon?.Text} " +
+                            $"circle={circle?.Text} square={square?.Text}");
+
+                if (_vectorLayer != null)
+                {
+                    _vectorLayer.IsVisible = false;
+                    Program.Log($"[VECTOR] layer hidden visible={_vectorLayer.IsVisible}");
+                }
+            }, TimeSpan.FromSeconds(2));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                if (_vectorLayer != null)
+                {
+                    _vectorLayer.IsVisible = true;
+                    Program.Log($"[VECTOR] layer shown visible={_vectorLayer.IsVisible} " +
+                                $"scaleBar={Globe.ShowScaleBar} measurements={Globe.Measurements.Count}");
+                }
+
+                Globe.IsFlatMode = true;
+                Program.Log("[VECTOR] flat mode on, redraw vectors/measurements");
+            }, TimeSpan.FromSeconds(3));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.IsFlatMode = false;
+                Program.Log($"[VECTOR] flat mode off lod={Globe.GetDrawnZoomRange()} " +
+                            $"measurements={Globe.Measurements.Count}");
+            }, TimeSpan.FromSeconds(4.5));
+        }
+        else if (args.Contains("--zoom-level-test"))
+        {
+            // 缩放级别回归：级别 -> 镜头高度、上下限收敛、平面模式换算、布局前暂存
+            Globe.ZoomToLevel(6);
+            DispatcherTimer.RunOnce(() =>
+            {
+                Program.Log($"[ZOOM] pending level={Globe.GetZoomLevel():0.00} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(1));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.ZoomToLevel(8);
+                Program.Log($"[ZOOM] level8 alt={Globe.Altitude / 1000d:0}km " +
+                            $"level={Globe.GetZoomLevel():0.00} lod={Globe.GetDrawnZoomRange()}");
+            }, TimeSpan.FromSeconds(1.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.MinZoomLevel = 5;
+                Globe.MaxZoomLevel = 10;
+                Globe.ZoomToLevel(15);
+                Program.Log($"[ZOOM] clamp-high level={Globe.GetZoomLevel():0.00} " +
+                            $"alt={Globe.Altitude / 1000d:0}km min={Globe.MinZoomLevel} max={Globe.MaxZoomLevel}");
+            }, TimeSpan.FromSeconds(3));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.ZoomToLevel(1);
+                Program.Log($"[ZOOM] clamp-low level={Globe.GetZoomLevel():0.00} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(4.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.IsFlatMode = true;
+                Globe.ZoomToLevel(9);
+                Program.Log($"[ZOOM] flat level={Globe.GetZoomLevel():0.00} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(6));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.IsFlatMode = false;
+                Globe.MinZoomLevel = 0;
+                Globe.MaxZoomLevel = 24;
+                Program.Log($"[ZOOM] restore level={Globe.GetZoomLevel():0.00} " +
+                            $"lod={Globe.GetDrawnZoomRange()}");
+            }, TimeSpan.FromSeconds(7.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                var (lodMin, lodMax) = Globe.GetDrawnZoomRange();
+                Program.Log($"[ZOOM] final level={Globe.GetZoomLevel():0.00} " +
+                            $"lod=z{lodMin}-z{lodMax} alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(9));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.Pitch = 55d;
+                Globe.ZoomToLevel(8);
+                Program.Log($"[ZOOM] pitch55 level={Globe.GetZoomLevel():0.00} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(9.5));
+        }
+        else if (args.Contains("--geodesy-test"))
+        {
+            // 测地线数学回归：已知距离/面积、极区多边形补集归一、球冠面积、方形边长
+            DispatcherTimer.RunOnce(() =>
+            {
+                var distance = Geodesy.Distance(new GeoPoint(39.9042d, 116.4074d),
+                    new GeoPoint(31.2304d, 121.4737d));
+                var polygon = Geodesy.PolygonArea(new[]
+                {
+                    new GeoPoint(30d, 0d), new GeoPoint(30d, 1d),
+                    new GeoPoint(31d, 1d), new GeoPoint(31d, 0d)
+                });
+                var polar = Geodesy.PolygonArea(new[]
+                {
+                    new GeoPoint(80d, 0d), new GeoPoint(80d, 90d),
+                    new GeoPoint(80d, 180d), new GeoPoint(80d, 270d)
+                });
+                var polarExpected = 2d * Math.PI * Geodesy.EarthRadius * Geodesy.EarthRadius *
+                                    (1d - Math.Cos(10d * Math.PI / 180d));
+                var circle = Geodesy.CircleArea(500_000d);
+                var squareSide = Geodesy.SquareSideFromCorner(new GeoPoint(0d, 0d), new GeoPoint(1d, 1d));
+
+                Program.Log($"[GEODESY] distance={distance:0}m polygon={polygon:0}m2 " +
+                            $"polar={polar:0}m2 polarExpected={polarExpected:0}m2 " +
+                            $"circle={circle:0}m2 circleExpected={Math.PI * 500_000d * 500_000d:0}m2 " +
+                            $"squareSide={squareSide:0}m");
+            }, TimeSpan.FromSeconds(1));
+        }
+        else if (args.Contains("--vector-seam-test"))
+        {
+            // 平面模式跨 ±180° 矢量回归：折线与多边形应拆到地图左右两侧，不能横贯整张地图
+            var seamLayer = new GlobeLayer("跨 180° 矢量");
+
+            var seamLine = new GlobePolylineVector
+            {
+                Stroke = new SolidColorBrush(Color.Parse("#FFFFCC80")),
+                StrokeThickness = 2d,
+                Label = "跨经线折线"
+            };
+            seamLine.AddPoint(0d, 175.3d).AddPoint(0d, 185.7d);
+            seamLayer.Vectors.Add(seamLine);
+
+            var seamPolygon = new GlobePolygonVector
+            {
+                Fill = new SolidColorBrush(Color.Parse("#33FF8A65")),
+                Stroke = new SolidColorBrush(Color.Parse("#FFFF8A65")),
+                Label = "跨经线多边形"
+            };
+            seamPolygon.AddPoint(-2d, 176d)
+                       .AddPoint(2d, 178d)
+                       .AddPoint(2d, -178d)
+                       .AddPoint(-2d, -176d);
+            seamLayer.Vectors.Add(seamPolygon);
+            Globe.Layers.Add(seamLayer);
+
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = true, TimeSpan.FromSeconds(1));
+            DispatcherTimer.RunOnce(() =>
+            {
+                // 缩小到全球范围：±180° 位于视口左右边缘，能直接看出是否横贯整屏
+                Globe.Altitude = 45_000_000d;
+                Globe.Camera.CenterLatitude = 0d;
+                Globe.Camera.CenterLongitude = 0d;
+                Globe.Refresh();
+                Program.Log($"[VECTOR-SEAM] flat={Globe.IsFlatMode} alt={Globe.Altitude:0} " +
+                            $"vectors={seamLayer.Vectors.Count}");
+            }, TimeSpan.FromSeconds(1.5));
         }
         else if (args.Contains("--hover-test"))
         {
@@ -410,6 +590,62 @@ public partial class MainWindow : Window
             Foreground = new SolidColorBrush(Color.Parse("#B2EBF2"))
         });
         Globe.Layers.Add(labelLayer);
+
+        // 矢量图层：圆形、镂空方形、多边形、折线；整层可见性由 GlobeLayer.IsVisible 控制
+        var vectorLayer = new GlobeLayer("矢量图形");
+        vectorLayer.Vectors.Add(new GlobeCircleVector
+        {
+            Center = new GeoPoint(39.9042d, 116.4074d),
+            RadiusMeters = 260_000d,
+            Fill = new SolidColorBrush(Color.Parse("#2E5AC8FF")),
+            Stroke = new SolidColorBrush(Color.Parse("#FF5AC8FF")),
+            StrokeThickness = 2d,
+            Label = "圆形 · 260 km",
+            LabelForeground = new SolidColorBrush(Color.Parse("#FFBFEAFF"))
+        });
+        vectorLayer.Vectors.Add(new GlobeSquareVector
+        {
+            Center = new GeoPoint(31.2304d, 121.4737d),
+            SideMeters = 300_000d,
+            Heading = 20d,
+            Fill = null, // 镂空：只画边框
+            Stroke = new SolidColorBrush(Color.Parse("#FFFFB74D")),
+            StrokeThickness = 2d,
+            DashStyle = DashStyle.Dash,
+            Label = "方形（镂空）· 300 km",
+            LabelForeground = new SolidColorBrush(Color.Parse("#FFFFD08A"))
+        });
+
+        var vectorPolygon = new GlobePolygonVector
+        {
+            Fill = new SolidColorBrush(Color.Parse("#3381C784")),
+            Stroke = new SolidColorBrush(Color.Parse("#FF9BE8B6")),
+            StrokeThickness = 2d,
+            Label = "多边形矢量",
+            LabelForeground = new SolidColorBrush(Color.Parse("#FFDDFBE7"))
+        };
+        vectorPolygon.AddPoint(28d, 100d)
+                     .AddPoint(34d, 98d)
+                     .AddPoint(36d, 109d)
+                     .AddPoint(30d, 113d);
+        vectorLayer.Vectors.Add(vectorPolygon);
+
+        var vectorLine = new GlobePolylineVector
+        {
+            Stroke = new SolidColorBrush(Color.Parse("#FFE0B2")),
+            StrokeThickness = 2d,
+            DashStyle = DashStyle.Dot
+        };
+        vectorLine.AddPoint(23.1291d, 113.2644d)
+                  .AddPoint(28.2282d, 112.9388d)
+                  .AddPoint(30.5728d, 104.0668d)
+                  .AddPoint(34.3416d, 108.9398d);
+        vectorLayer.Vectors.Add(vectorLine);
+
+        Globe.Layers.Add(vectorLayer);
+        _vectorLayer = vectorLayer;
+        Globe.ShowScaleBar = true;
+        Globe.ShowZoomLevel = true;
     }
 
     private static string PickKey(IReadOnlyList<string> keys) => keys[Random.Shared.Next(keys.Count)];
@@ -564,7 +800,16 @@ public partial class MainWindow : Window
 
         // 鼠标移动事件：靠近标记点时在鼠标旁展示自定义内容
         Globe.GlobePointerMoved += (_, e) =>
+        {
+            if (Globe.ActiveTool != GlobeTool.None)
+            {
+                if (_mouseTip != null)
+                    _mouseTip.IsVisible = false;
+                return;
+            }
+
             ShowMouseTip(e.ScreenPosition, e.NearestMarker, e.NearestDistance, e.Location);
+        };
 
         Globe.MarkerClicked += (_, e) =>
         {
@@ -654,6 +899,113 @@ public partial class MainWindow : Window
             Globe.IsFlatMode = !Globe.IsFlatMode;
             flatButton.Content = Globe.IsFlatMode ? "三维模式" : "平面模式";
         };
+
+        // 比例尺开关
+        var scaleButton = this.FindControl<Button>("ScaleButton")!;
+        scaleButton.Content = Globe.ShowScaleBar ? "比例尺：开" : "比例尺：关";
+        scaleButton.Click += (_, _) =>
+        {
+            Globe.ShowScaleBar = !Globe.ShowScaleBar;
+            scaleButton.Content = Globe.ShowScaleBar ? "比例尺：开" : "比例尺：关";
+        };
+
+        // 矢量图层整体显示/隐藏：修改 IsVisible 后由控件自动重绘
+        var vectorLayerButton = this.FindControl<Button>("VectorLayerButton")!;
+        vectorLayerButton.Click += (_, _) =>
+        {
+            if (_vectorLayer == null)
+                return;
+
+            _vectorLayer.IsVisible = !_vectorLayer.IsVisible;
+            vectorLayerButton.Content = _vectorLayer.IsVisible ? "矢量图层：开" : "矢量图层：关";
+            hintBorder.IsVisible = true;
+            hintText.Text = $"矢量图层：{(_vectorLayer.IsVisible ? "显示" : "隐藏")}";
+        };
+
+        // 测量工具：再次点击同一个按钮回到 None
+        RegisterToolButton("DistanceButton", GlobeTool.Distance, "距离");
+        RegisterToolButton("PolygonButton", GlobeTool.AreaPolygon, "多边形");
+        RegisterToolButton("CircleButton", GlobeTool.AreaCircle, "圆形");
+        RegisterToolButton("SquareButton", GlobeTool.AreaSquare, "方形");
+        UpdateToolButtons();
+
+        // 按缩放级别缩放：四舍五入到整数级别后加减 1，平滑飞行
+        this.FindControl<Button>("ZoomOutButton")!.Click += (_, _) => ZoomByLevel(-1d);
+        this.FindControl<Button>("ZoomInButton")!.Click += (_, _) => ZoomByLevel(1d);
+
+        this.FindControl<Button>("ClearMeasureButton")!.Click += (_, _) =>
+        {
+            Globe.ClearMeasurements();
+            hintBorder.IsVisible = true;
+            hintText.Text = "已清除全部测量结果";
+        };
+
+        Globe.MeasurementCompleted += (_, e) =>
+        {
+            hintBorder.IsVisible = true;
+            hintText.Text = $"测量完成：{e.Measurement.Tool} {e.Measurement.Text}";
+            Program.Log($"[MEASURE] {e.Measurement.Tool} {e.Measurement.Text} " +
+                        $"points={e.Measurement.Points.Count} area={e.Measurement.AreaSquareMeters:0}" +
+                        $" length={e.Measurement.LengthMeters:0}");
+        };
+    }
+
+    private void ZoomByLevel(double delta)
+    {
+        var level = Globe.GetZoomLevel();
+        if (!double.IsFinite(level))
+            return;
+
+        Globe.ZoomToLevel(Math.Round(level) + delta, TimeSpan.FromMilliseconds(320));
+        var hint = this.FindControl<TextBlock>("ToolHintText");
+        if (hint != null)
+            hint.Text = $"缩放级别：{Globe.GetZoomLevel():0.0} → {Math.Round(level) + delta:0.0}";
+    }
+
+    /// <summary>把一个工具按钮注册到 <see cref="GlobeView.ActiveTool"/>：再次点击同一按钮取消工具。</summary>
+    private void RegisterToolButton(string name, GlobeTool tool, string label)
+    {
+        var button = this.FindControl<Button>(name);
+        if (button == null)
+            return;
+
+        button.Content = label;
+        _toolButtons[button] = tool;
+        button.Click += (_, _) =>
+        {
+            Globe.ActiveTool = Globe.ActiveTool == tool ? GlobeTool.None : tool;
+            UpdateToolButtons();
+        };
+    }
+
+    private void UpdateToolButtons()
+    {
+        foreach (var (button, tool) in _toolButtons)
+        {
+            var label = tool switch
+            {
+                GlobeTool.Distance => "距离",
+                GlobeTool.AreaPolygon => "多边形",
+                GlobeTool.AreaCircle => "圆形",
+                GlobeTool.AreaSquare => "方形",
+                _ => tool.ToString()
+            };
+
+            button.Content = Globe.ActiveTool == tool ? "● " + label : label;
+        }
+
+        var hint = this.FindControl<TextBlock>("ToolHintText");
+        if (hint == null)
+            return;
+
+        hint.Text = Globe.ActiveTool switch
+        {
+            GlobeTool.Distance => "距离：单击落点，双击/右键完成",
+            GlobeTool.AreaPolygon => "多边形面积：单击落点，双击/右键完成",
+            GlobeTool.AreaCircle => "圆形面积：先点圆心，再点圆周",
+            GlobeTool.AreaSquare => "方形面积：先点中心，再点边界点（正北朝上）",
+            _ => "单击落点 · 双击/右键完成 · Esc 取消"
+        };
     }
 
     /// <summary>鼠标旁的自定义浮层：靠近标记点时显示名称与距离，否则隐藏。</summary>
@@ -701,9 +1053,11 @@ public partial class MainWindow : Window
             var (zoom, tiles, textures, failed) = Globe.GetDiagnostics();
             var (lodMin, lodMax) = Globe.GetDrawnZoomRange();
             var lod = lodMin < 0 ? $"z{zoom}" : $"z{lodMin}-z{lodMax}";
+            var level = Globe.GetZoomLevel();
+            var levelText = double.IsFinite(level) ? level.ToString("0.0") : "-";
             statusText.Text =
                 $"纬度 {Globe.CenterLatitude:0.00}°  经度 {Globe.CenterLongitude:0.00}°  " +
-                $"高度 {Globe.Altitude / 1000d:N0} km  层级 {lod}  " +
+                $"高度 {Globe.Altitude / 1000d:N0} km  层级 {lod}  缩放 {levelText}  " +
                 $"绘制瓦片 {tiles}  纹理 {textures}  失败 {failed}  " +
                 $"底图 {_activeBasemapName}";
 

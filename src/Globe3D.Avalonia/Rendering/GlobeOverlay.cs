@@ -14,8 +14,19 @@ internal sealed class GlobeOverlay : Control
     private static readonly Typeface DefaultTypeface = new(FontFamily.Default);
     private static readonly Typeface BoldTypeface = new(FontFamily.Default, FontStyle.Normal, FontWeight.SemiBold);
 
+    private static readonly SolidColorBrush MeasureStroke = new(Color.FromArgb(255, 90, 200, 255));
+    private static readonly SolidColorBrush MeasureDraftStroke = new(Color.FromArgb(235, 150, 225, 255));
+    private static readonly SolidColorBrush MeasureFill = new(Color.FromArgb(34, 90, 200, 255));
+    private static readonly SolidColorBrush MeasureVertexFill = new(Color.FromArgb(255, 24, 66, 102));
+    private static readonly SolidColorBrush ScaleBarStroke = new(Color.FromArgb(240, 236, 245, 255));
+    private static readonly SolidColorBrush ScaleBarShadow = new(Color.FromArgb(170, 0, 0, 0));
+    private static readonly SolidColorBrush ScaleBarBackground = new(Color.FromArgb(190, 10, 16, 26));
+
     private readonly List<Rect> _labelRects = new();
     private readonly List<(GlobeMarker Marker, Rect Bounds, Point Center)> _markerHits = new();
+
+    private FormattedText? _zoomBadgeText;
+    private double _zoomBadgeLevel = double.NaN;
 
     /// <summary>当前鼠标位置（相对覆盖层），为 null 表示鼠标不在控件上。</summary>
     public Point? PointerPosition { get; set; }
@@ -41,6 +52,24 @@ internal sealed class GlobeOverlay : Control
     /// <summary>是否对标签做防重叠避让。</summary>
     public bool AvoidLabelOverlap { get; set; } = true;
 
+    /// <summary>是否在视口角落绘制比例尺。</summary>
+    public bool ShowScaleBar { get; set; }
+
+    /// <summary>比例尺停靠位置。</summary>
+    public GlobeScaleBarPlacement ScaleBarPlacement { get; set; } = GlobeScaleBarPlacement.BottomLeft;
+
+    /// <summary>是否在视口角落显示当前缩放级别。</summary>
+    public bool ShowZoomLevel { get; set; }
+
+    /// <summary>缩放级别显示的停靠位置。</summary>
+    public GlobeScaleBarPlacement ZoomLevelPlacement { get; set; } = GlobeScaleBarPlacement.BottomRight;
+
+    /// <summary>已完成的测量结果。</summary>
+    public IReadOnlyList<GlobeMeasurement> Measurements { get; set; } = Array.Empty<GlobeMeasurement>();
+
+    /// <summary>正在绘制中的测量草稿。</summary>
+    public GlobeMeasurementDraft? MeasurementDraft { get; set; }
+
     public override void Render(DrawingContext context)
     {
         _labelRects.Clear();
@@ -52,10 +81,10 @@ internal sealed class GlobeOverlay : Control
 
         var width = Bounds.Width;
         var height = Bounds.Height;
-        if (width <= 1 || height <= 1 || Layers.Count == 0)
+        if (width <= 1 || height <= 1)
             return;
 
-        // 先画区域，再画标记，最后画文字
+        // 先画区域，再画矢量图形，再画标记，最后画文字
         foreach (var layer in Layers)
         {
             if (!layer.IsVisible)
@@ -68,33 +97,54 @@ internal sealed class GlobeOverlay : Control
         {
             if (!layer.IsVisible)
                 continue;
-            foreach (var marker in layer.Markers)
-                DrawMarker(context, camera, marker, width, height);
+            foreach (var vector in layer.Vectors)
+                DrawVector(context, camera, vector, width, height);
         }
-
-        if (!ShowLabels)
-            return;
 
         foreach (var layer in Layers)
         {
             if (!layer.IsVisible)
                 continue;
             foreach (var marker in layer.Markers)
-            {
-                if (marker.IsVisible && !string.IsNullOrEmpty(marker.Label))
-                    DrawMarkerLabel(context, camera, marker, width, height);
-            }
-
-            foreach (var label in layer.Labels)
-                DrawLabel(context, camera, label, width, height);
+                DrawMarker(context, camera, marker, width, height);
         }
+
+        if (ShowLabels)
+        {
+            foreach (var layer in Layers)
+            {
+                if (!layer.IsVisible)
+                    continue;
+                foreach (var marker in layer.Markers)
+                {
+                    if (marker.IsVisible && !string.IsNullOrEmpty(marker.Label))
+                        DrawMarkerLabel(context, camera, marker, width, height);
+                }
+
+                foreach (var label in layer.Labels)
+                    DrawLabel(context, camera, label, width, height);
+            }
+        }
+
+        // 测量结果与比例尺属于工具层，不受 ShowLabels 影响
+        foreach (var measurement in Measurements)
+            DrawMeasurement(context, camera, measurement, width, height);
+
+        if (MeasurementDraft is { } draft)
+            DrawMeasurementDraft(context, camera, draft, width, height);
+
+        if (ShowScaleBar)
+            DrawScaleBar(context, camera, width, height);
+
+        if (ShowZoomLevel)
+            DrawZoomLevel(context, camera, width, height);
 
         // 悬停高亮与提示框画在标注之上，保证不被其他元素遮挡
         if (HoverMarker is { } hover)
             DrawHover(context, hover, width, height);
     }
 
-    #region 区域
+    #region 区域与矢量图形
 
     private void DrawRegion(DrawingContext context, OrbitCamera camera, GlobeRegion region,
         double width, double height)
@@ -102,22 +152,72 @@ internal sealed class GlobeOverlay : Control
         if (!region.IsVisible || region.Points.Count < 3)
             return;
 
+        DrawGeoShape(context, camera, AsReadOnly(region.Points), closed: true,
+            region.Fill, region.Stroke, region.StrokeThickness, dashStyle: null,
+            region.Label, !string.IsNullOrEmpty(region.Label), 13d, Brushes.White,
+            boldLabel: true, width, height);
+    }
+
+    private void DrawVector(DrawingContext context, OrbitCamera camera, GlobeVector vector,
+        double width, double height)
+    {
+        if (!vector.IsVisible)
+            return;
+
+        var ring = vector.BuildRing();
+        if (ring is not { Count: >= 2 })
+            return;
+
+        DrawGeoShape(context, camera, ring, vector.IsClosedRing, vector.Fill, vector.Stroke,
+            vector.StrokeThickness, vector.DashStyle, vector.Label,
+            ShowLabels && vector.ShowLabel && !string.IsNullOrEmpty(vector.Label), vector.LabelFontSize,
+            vector.LabelForeground, boldLabel: true, width, height);
+    }
+
+    /// <summary>
+    /// 绘制一段经纬度几何：闭合环支持填充（镂空时 Fill 传 null）与描边，开放折线只描边。
+    /// 三维模式按大圆插值并裁剪到可见半球；平面模式按经纬度投影并拆分裂到 ±180° 与视口矩形。
+    /// </summary>
+    private void DrawGeoShape(DrawingContext context, OrbitCamera camera, IReadOnlyList<GeoPoint> points,
+        bool closed, IBrush? fill, IBrush? stroke, double strokeThickness, IDashStyle? dashStyle,
+        string? label, bool showLabel, double labelFontSize, IBrush labelForeground, bool boldLabel,
+        double width, double height)
+    {
+        if (points.Count < 2)
+            return;
+
+        if (closed && points.Count < 3)
+            closed = false;
+
+        var pen = stroke != null && strokeThickness > 0d
+            ? new Pen(stroke, Math.Max(0.5d, strokeThickness), lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round)
+            : null;
+        if (pen != null && dashStyle != null)
+            pen.DashStyle = dashStyle;
+
         if (camera.IsFlat)
         {
-            DrawFlatRegion(context, camera, region, width, height);
+            DrawFlatGeoShape(context, camera, points, closed, fill, pen, label, showLabel,
+                labelFontSize, labelForeground, boldLabel, width, height);
             return;
         }
 
-        // 区域顶点全部在球面上按大圆插值展开：三维坐标天然没有 ±180° 经线的接缝
-        var ring = new List<Vec3>(region.Points.Count * 16);
-        for (var i = 0; i < region.Points.Count; i++)
+        // 顶点按大圆插值展开：三维坐标天然没有 ±180° 经线的接缝
+        var ring = new List<Vec3>(Math.Max(8, points.Count * 8));
+        if (closed)
         {
-            var start = region.Points[i];
-            var end = region.Points[(i + 1) % region.Points.Count];
-            AppendArc(start, end, ring);
+            for (var i = 0; i < points.Count; i++)
+                AppendArc(points[i], points[(i + 1) % points.Count], ring);
+        }
+        else
+        {
+            ring.Add(ToWorld(points[0]));
+            for (var i = 0; i < points.Count - 1; i++)
+                AppendArc(points[i], points[i + 1], ring);
+            ring.Add(ToWorld(points[^1]));
         }
 
-        if (ring.Count < 3)
+        if (ring.Count < 2)
             return;
 
         var projected = new List<Point>(ring.Count);
@@ -150,116 +250,119 @@ internal sealed class GlobeOverlay : Control
         if (!anyVisible)
             return;
 
-        var pen = region.Stroke != null
-            ? new Pen(region.Stroke, region.StrokeThickness, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round)
-            : null;
-
-        // 填充：先把三维环裁剪到相机可见半球再投影。
-        // 这样跨 ±180° 经线、以及一部分隐到地平线后面的区域都能得到正确的闭合多边形，
-        // 裁剪边恰好落在球体轮廓上，不会出现“整个地球被填满”或“无填充”的情况。
+        // 填充：先裁剪到相机可见半球再投影，跨地平线的区域也能得到闭合多边形
         List<Point>? fillPoints = null;
-        if (region.Fill != null)
+        if (closed && fill != null)
         {
             fillPoints = BuildFillPolygon(ring, camera, width, height);
             if (fillPoints != null)
             {
                 var geometry = BuildGeometry(fillPoints, closed: true);
                 if (geometry != null)
-                    context.DrawGeometry(region.Fill, null, geometry);
+                    context.DrawGeometry(fill, null, geometry);
             }
         }
 
         if (pen != null)
         {
             if (allVisible)
-                DrawPolyline(context, pen, projected, closed: true);
+                DrawPolyline(context, pen, projected, closed);
             else
-                DrawVisibleSegments(context, pen, projected, visible);
+                DrawVisibleSegments(context, pen, projected, visible, closed);
         }
 
-        if (!string.IsNullOrEmpty(region.Label))
+        if (showLabel && !string.IsNullOrEmpty(label))
         {
             var center = ComputeCentroid(fillPoints) ?? ComputeVisibleCentroid(projected, visible);
-            if (center is { } point)
-                DrawTextWithShadow(context, region.Label, point, 13d, Brushes.White, BoldTypeface, centerAligned: true);
+            if (center is { } anchor)
+                DrawTextWithShadow(context, label, anchor, labelFontSize, labelForeground,
+                    boldLabel ? BoldTypeface : DefaultTypeface, centerAligned: true);
         }
     }
 
     /// <summary>
-    /// 平面模式下的区域绘制：按经纬度线性展开（二维地图不需要大圆插值），
-    /// 跨 ±180° 经线的区域会被拆成左右两段分别填充/描边。
+    /// 平面模式下的几何绘制：按经纬度线性展开（二维地图不需要大圆插值），
+    /// 跨 ±180° 经线的环拆成左右两段分别填充/描边。
     /// </summary>
-    private void DrawFlatRegion(DrawingContext context, OrbitCamera camera, GlobeRegion region,
-        double width, double height)
+    private void DrawFlatGeoShape(DrawingContext context, OrbitCamera camera, IReadOnlyList<GeoPoint> points,
+        bool closed, IBrush? fill, IPen? pen, string? label, bool showLabel, double labelFontSize,
+        IBrush labelForeground, bool boldLabel, double width, double height)
     {
-        if (!region.IsVisible || region.Points.Count < 3)
-            return;
-
-        var pen = region.Stroke != null
-            ? new Pen(region.Stroke, region.StrokeThickness, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round)
-            : null;
-
         Point? labelAnchor = null;
         var bestCount = 0;
-        foreach (var ring in BuildFlatRegionPolygons(region.Points))
+
+        if (closed)
         {
-            var projected = new List<Point>(ring.Count);
-            foreach (var (lon, lat) in ring)
+            foreach (var ring in BuildFlatRegionPolygons(points))
             {
-                if (!camera.ProjectGeo(new GeoPoint(lat, lon), width, height, out var sx, out var sy, out _))
+                var projected = new List<Point>(ring.Count);
+                foreach (var (lon, lat) in ring)
+                {
+                    if (!camera.ProjectGeo(new GeoPoint(lat, lon), width, height, out var sx, out var sy, out _))
+                        continue;
+                    projected.Add(new Point(sx, sy));
+                }
+
+                if (projected.Count < 3)
                     continue;
-                projected.Add(new Point(sx, sy));
+
+                var clipped = ClipPolygonToRect(projected, new Rect(-8d, -8d, width + 16d, height + 16d));
+                if (clipped.Count < 3)
+                    continue;
+
+                if (fill != null)
+                {
+                    var geometry = BuildGeometry(clipped, closed: true);
+                    if (geometry != null)
+                        context.DrawGeometry(fill, null, geometry);
+                }
+
+                if (pen != null)
+                    DrawPolyline(context, pen, clipped, closed: true);
+
+                if (clipped.Count > bestCount && ComputeCentroid(clipped) is { } centroid)
+                {
+                    bestCount = clipped.Count;
+                    labelAnchor = centroid;
+                }
             }
+        }
+        else
+        {
+            foreach (var run in BuildFlatPolylineRuns(points))
+                DrawFlatPolyline(context, camera, pen, run, width, height);
 
-            if (projected.Count < 3)
-                continue;
-
-            var clipped = ClipPolygonToRect(projected, new Rect(-8d, -8d, width + 16d, height + 16d));
-            if (clipped.Count < 3)
-                continue;
-
-            if (region.Fill != null)
+            if (labelAnchor == null)
             {
-                var geometry = BuildGeometry(clipped, closed: true);
-                if (geometry != null)
-                    context.DrawGeometry(region.Fill, null, geometry);
-            }
-
-            if (pen != null)
-                DrawPolyline(context, pen, clipped, closed: true);
-
-            if (clipped.Count > bestCount && ComputeCentroid(clipped) is { } centroid)
-            {
-                bestCount = clipped.Count;
-                labelAnchor = centroid;
+                var middle = points[points.Count / 2];
+                if (camera.ProjectGeo(middle, width, height, out var mx, out var my, out _))
+                    labelAnchor = new Point(mx, my);
             }
         }
 
-        if (!string.IsNullOrEmpty(region.Label) && labelAnchor is { } anchor)
-            DrawTextWithShadow(context, region.Label, anchor, 13d, Brushes.White, BoldTypeface, centerAligned: true);
+        if (showLabel && !string.IsNullOrEmpty(label) && labelAnchor is { } anchor)
+            DrawTextWithShadow(context, label, anchor, labelFontSize, labelForeground,
+                boldLabel ? BoldTypeface : DefaultTypeface, centerAligned: true);
     }
+
+    private static IReadOnlyList<GeoPoint> AsReadOnly(IList<GeoPoint> points) =>
+        points as IReadOnlyList<GeoPoint> ?? points.ToArray();
+
+    private static Vec3 ToWorld(GeoPoint point) =>
+        GeoMath.LonLatToUnitVector(point.Longitude, point.Latitude) *
+        GeoMath.AltitudeToRadius(point.Altitude);
 
     /// <summary>
     /// 平面模式区域环：经度按最短路径展开后，分别平移 -360/0/+360 裁剪到 -180..180，
     /// 因此跨经线的区域会得到左右两段闭合多边形，填充不会横穿整张地图。
     /// </summary>
-    private static List<List<(double Lon, double Lat)>> BuildFlatRegionPolygons(IList<GeoPoint> points)
+    private static List<List<(double Lon, double Lat)>> BuildFlatRegionPolygons(IReadOnlyList<GeoPoint> points)
     {
         var result = new List<List<(double Lon, double Lat)>>();
         if (points.Count < 3)
             return result;
 
-        var unwrapped = new List<(double Lon, double Lat)>(points.Count);
-        var lon = MathUtil.NormalizeLongitude(points[0].Longitude);
-        var lat = MathUtil.Clamp(points[0].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
-        unwrapped.Add((lon, lat));
-
-        for (var i = 1; i < points.Count; i++)
-        {
-            lon += MathUtil.NormalizeLongitudeDelta(points[i].Longitude - lon);
-            lat = MathUtil.Clamp(points[i].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
-            unwrapped.Add((lon, lat));
-        }
+        var unwrapped = UnwrapLongitudes(points);
 
         foreach (var shift in new[] { -360d, 0d, 360d })
         {
@@ -275,11 +378,170 @@ internal sealed class GlobeOverlay : Control
         return result;
     }
 
+    /// <summary>把经纬度顶点按最短路径展开成连续的经度（避免 179° → -179° 被当成绕地球一圈）。</summary>
+    private static List<(double Lon, double Lat)> UnwrapLongitudes(IReadOnlyList<GeoPoint> points)
+    {
+        var unwrapped = new List<(double Lon, double Lat)>(points.Count);
+        if (points.Count == 0)
+            return unwrapped;
+
+        var lon = MathUtil.NormalizeLongitude(points[0].Longitude);
+        var lat = MathUtil.Clamp(points[0].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
+        unwrapped.Add((lon, lat));
+
+        for (var i = 1; i < points.Count; i++)
+        {
+            lon += MathUtil.NormalizeLongitudeDelta(points[i].Longitude - lon);
+            lat = MathUtil.Clamp(points[i].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
+            unwrapped.Add((lon, lat));
+        }
+
+        return unwrapped;
+    }
+
+    /// <summary>
+    /// 平面模式折线：经度展开后拆成若干段，每段都裁剪到 ±180° 经线内；
+    /// 跨经线的折线会得到左右两段，而不是横穿整张地图。
+    /// </summary>
+    private static List<List<(double Lon, double Lat)>> BuildFlatPolylineRuns(IReadOnlyList<GeoPoint> points)
+    {
+        var result = new List<List<(double Lon, double Lat)>>();
+        if (points.Count < 2)
+            return result;
+
+        var unwrapped = UnwrapLongitudes(points);
+
+        foreach (var shift in new[] { -360d, 0d, 360d })
+        {
+            List<(double Lon, double Lat)>? run = null;
+
+            for (var i = 0; i < unwrapped.Count - 1; i++)
+            {
+                var start = (Lon: unwrapped[i].Lon + shift, Lat: unwrapped[i].Lat);
+                var end = (Lon: unwrapped[i + 1].Lon + shift, Lat: unwrapped[i + 1].Lat);
+
+                if (!ClipFlatSegmentToLongitude(ref start, ref end, -180d, 180d))
+                {
+                    if (run != null)
+                    {
+                        result.Add(run);
+                        run = null;
+                    }
+
+                    continue;
+                }
+
+                // 与上一段不连续（中间有段被裁掉）时另起一条折线
+                if (run != null && !NearlyEquals(run[^1], start))
+                {
+                    result.Add(run);
+                    run = null;
+                }
+
+                run ??= new List<(double Lon, double Lat)> { start };
+                if (!NearlyEquals(run[^1], end))
+                    run.Add(end);
+            }
+
+            if (run is { Count: >= 2 })
+                result.Add(run);
+        }
+
+        return result;
+    }
+
+    private static bool NearlyEquals((double Lon, double Lat) a, (double Lon, double Lat) b) =>
+        Math.Abs(a.Lon - b.Lon) < 1e-9d && Math.Abs(a.Lat - b.Lat) < 1e-9d;
+
+    /// <summary>把经纬度线段裁剪到两条经线之间（Liang–Barsky）。</summary>
+    private static bool ClipFlatSegmentToLongitude(ref (double Lon, double Lat) start,
+        ref (double Lon, double Lat) end, double west, double east)
+    {
+        var t0 = 0d;
+        var t1 = 1d;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, start.Lon - west, end.Lon - west))
+            return false;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, east - start.Lon, east - end.Lon))
+            return false;
+
+        // 浮点插值可能略微越过 ±180（如 180.00000000000003），
+        // 而 ProjectGeo 会把越界值按 ±360 折回另一侧，导致线段横贯整张地图，必须钉到裁剪边界上
+        var a = (Lon: Math.Clamp(start.Lon + (end.Lon - start.Lon) * t0, west, east),
+            Lat: start.Lat + (end.Lat - start.Lat) * t0);
+        var b = (Lon: Math.Clamp(start.Lon + (end.Lon - start.Lon) * t1, west, east),
+            Lat: start.Lat + (end.Lat - start.Lat) * t1);
+        start = a;
+        end = b;
+        return true;
+    }
+
+    private static bool ClipSegmentHalfPlane(ref double t0, ref double t1, double d0, double d1)
+    {
+        if (d0 >= 0d && d1 >= 0d)
+            return true;
+        if (d0 < 0d && d1 < 0d)
+            return false;
+
+        var t = d0 / (d0 - d1);
+        if (d0 < 0d)
+            t0 = Math.Max(t0, t);
+        else
+            t1 = Math.Min(t1, t);
+        return t1 > t0;
+    }
+
+    private static void DrawFlatPolyline(DrawingContext context, OrbitCamera camera, IPen? pen,
+        List<(double Lon, double Lat)> run, double width, double height)
+    {
+        if (pen == null || run.Count < 2)
+            return;
+
+        var viewport = new Rect(-8d, -8d, width + 16d, height + 16d);
+        for (var i = 0; i < run.Count - 1; i++)
+        {
+            if (!camera.ProjectGeo(new GeoPoint(run[i].Lat, run[i].Lon), width, height,
+                    out var ax, out var ay, out _))
+                continue;
+            if (!camera.ProjectGeo(new GeoPoint(run[i + 1].Lat, run[i + 1].Lon), width, height,
+                    out var bx, out var by, out _))
+                continue;
+
+            DrawClippedScreenSegment(context, pen, new Point(ax, ay), new Point(bx, by), viewport);
+        }
+    }
+
+    /// <summary>把屏幕线段裁剪到视口矩形后绘制，避免深层级下超大坐标进入 Skia。</summary>
+    private static void DrawClippedScreenSegment(DrawingContext context, IPen pen, Point a, Point b, Rect rect)
+    {
+        var t0 = 0d;
+        var t1 = 1d;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, a.X - rect.Left, b.X - rect.Left))
+            return;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, rect.Right - a.X, rect.Right - b.X))
+            return;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, a.Y - rect.Top, b.Y - rect.Top))
+            return;
+        if (!ClipSegmentHalfPlane(ref t0, ref t1, rect.Bottom - a.Y, rect.Bottom - b.Y))
+            return;
+
+        var start = new Point(a.X + (b.X - a.X) * t0, a.Y + (b.Y - a.Y) * t0);
+        var end = new Point(a.X + (b.X - a.X) * t1, a.Y + (b.Y - a.Y) * t1);
+        if (!start.Equals(end))
+            context.DrawLine(pen, start, end);
+    }
+
     private static List<(double Lon, double Lat)> ClipFlatPolygonToLongitude(
         List<(double Lon, double Lat)> polygon, double west, double east)
     {
         var result = ClipFlatHalfPlane(polygon, point => point.Lon - west);
-        return ClipFlatHalfPlane(result, point => east - point.Lon);
+        result = ClipFlatHalfPlane(result, point => east - point.Lon);
+
+        // 与折线相同的浮点越界问题：Sutherland–Hodgman 的交点可能多出 1e-14，
+        // 经度折回后会在另一侧产生孤立顶点，导致填充/描边异常
+        for (var i = 0; i < result.Count; i++)
+            result[i] = (Math.Clamp(result[i].Lon, west, east), result[i].Lat);
+
+        return result;
     }
 
     private static List<(double Lon, double Lat)> ClipFlatHalfPlane(
@@ -476,9 +738,11 @@ internal sealed class GlobeOverlay : Control
         return result;
     }
 
-    private static void DrawVisibleSegments(DrawingContext context, IPen pen, List<Point> points, List<bool> visible)
+    private static void DrawVisibleSegments(DrawingContext context, IPen pen, List<Point> points,
+        List<bool> visible, bool closed)
     {
-        for (var i = 0; i < points.Count; i++)
+        var last = closed ? points.Count : points.Count - 1;
+        for (var i = 0; i < last; i++)
         {
             var next = (i + 1) % points.Count;
             if (visible[i] && visible[next] && !points[i].Equals(points[next]))
@@ -543,6 +807,303 @@ internal sealed class GlobeOverlay : Control
         }
 
         return count > 0 ? new Point(x / count, y / count) : null;
+    }
+
+    #endregion
+
+    #region 测量与比例尺
+
+    private void DrawMeasurement(DrawingContext context, OrbitCamera camera, GlobeMeasurement measurement,
+        double width, double height)
+    {
+        switch (measurement.Tool)
+        {
+            case GlobeTool.Distance:
+                DrawMeasureShape(context, camera, measurement.Points, closed: false, draft: false,
+                    measurement.Text, showLabel: true, width, height);
+                DrawSegmentLabels(context, camera, measurement.Points, width, height);
+                DrawGeoVertices(context, camera, measurement.Points, width, height, 2.6d);
+                break;
+
+            case GlobeTool.AreaPolygon:
+                DrawMeasureShape(context, camera, measurement.Points, closed: true, draft: false,
+                    measurement.Text, showLabel: true, width, height);
+                DrawGeoVertices(context, camera, measurement.Points, width, height, 2.6d);
+                break;
+
+            case GlobeTool.AreaCircle:
+            case GlobeTool.AreaSquare:
+            {
+                if (measurement.Points.Count < 2)
+                    return;
+
+                var center = measurement.Points[0];
+                var rim = measurement.Points[1];
+                var ring = measurement.AreaRing ?? BuildAreaRing(measurement.Tool, center, rim);
+                DrawMeasureShape(context, camera, ring, closed: true, draft: false,
+                    measurement.Text, showLabel: true, width, height);
+
+                // 半径/半边长虚线，便于看出尺寸依据
+                DrawMeasureGuide(context, camera, center, rim, draft: false, width, height);
+                DrawGeoVertices(context, camera, new[] { center, rim }, width, height, 2.6d);
+                break;
+            }
+        }
+    }
+
+    private void DrawMeasurementDraft(DrawingContext context, OrbitCamera camera, GlobeMeasurementDraft draft,
+        double width, double height)
+    {
+        switch (draft.Tool)
+        {
+            case GlobeTool.AreaCircle:
+            case GlobeTool.AreaSquare:
+            {
+                if (draft.Points.Count == 0)
+                {
+                    if (draft.Pointer is { } preview)
+                        DrawGeoVertex(context, camera, preview, width, height, 3d);
+                    return;
+                }
+
+                var center = draft.Points[0];
+                DrawGeoVertex(context, camera, center, width, height, 3d);
+                if (draft.Pointer is not { } rim)
+                    return;
+
+                var ring = BuildAreaRing(draft.Tool, center, rim);
+                var area = draft.Tool == GlobeTool.AreaCircle
+                    ? Geodesy.CircleArea(Geodesy.Distance(center, rim))
+                    : Geodesy.PolygonArea(ring);
+
+                DrawMeasureShape(context, camera, ring, closed: true, draft: true,
+                    Geodesy.FormatArea(area), showLabel: true, width, height);
+                DrawMeasureGuide(context, camera, center, rim, draft: true, width, height);
+                DrawGeoVertex(context, camera, rim, width, height, 3d);
+                return;
+            }
+        }
+
+        // 距离 / 多边形：已点击的顶点 + 当前鼠标位置形成橡皮筋线
+        var points = new List<GeoPoint>(draft.Points);
+        if (draft.Pointer is { } pointer &&
+            (points.Count == 0 || Geodesy.Distance(points[^1], pointer) > 0.01d))
+            points.Add(pointer);
+
+        if (points.Count == 0)
+            return;
+
+        var closed = draft.Tool == GlobeTool.AreaPolygon && points.Count >= 3;
+        var text = closed ? Geodesy.FormatArea(Geodesy.PolygonArea(points)) : null;
+
+        DrawMeasureShape(context, camera, points, closed, draft: true, text, closed, width, height);
+
+        if (!closed)
+            DrawSegmentLabels(context, camera, points, width, height);
+
+        DrawGeoVertices(context, camera, draft.Points, width, height, 2.6d);
+    }
+
+    /// <summary>测量图形统一样式：完成后蓝色实线，草稿为浅蓝虚线 + 半透明填充。</summary>
+    private void DrawMeasureShape(DrawingContext context, OrbitCamera camera,
+        IReadOnlyList<GeoPoint> points, bool closed, bool draft, string? label, bool showLabel,
+        double width, double height)
+    {
+        var stroke = draft ? MeasureDraftStroke : MeasureStroke;
+        DrawGeoShape(context, camera, points, closed, closed ? MeasureFill : null, stroke,
+            draft ? 1.8d : 2d, draft ? DashStyle.Dash : null, label, showLabel, 12.5d,
+            stroke, boldLabel: true, width, height);
+    }
+
+    /// <summary>从圆/方形中心到边界点的虚线引导线。</summary>
+    private void DrawMeasureGuide(DrawingContext context, OrbitCamera camera,
+        GeoPoint center, GeoPoint rim, bool draft, double width, double height)
+    {
+        var stroke = draft ? MeasureDraftStroke : MeasureStroke;
+        DrawGeoShape(context, camera, new[] { center, rim }, closed: false, fill: null,
+            stroke, 1.1d, DashStyle.Dash, label: null, showLabel: false, labelFontSize: 11d,
+            labelForeground: stroke, boldLabel: false, width, height);
+    }
+
+    /// <summary>按圆形/方形的圆心与边界上的点生成经纬度环。</summary>
+    private static IReadOnlyList<GeoPoint> BuildAreaRing(GlobeTool tool, GeoPoint center, GeoPoint rim)
+    {
+        if (tool == GlobeTool.AreaCircle)
+            return Geodesy.CircleRing(center, Geodesy.Distance(center, rim));
+
+        return Geodesy.SquareRing(center, Geodesy.SquareSideFromCorner(center, rim));
+    }
+
+    private void DrawSegmentLabels(DrawingContext context, OrbitCamera camera, IReadOnlyList<GeoPoint> points,
+        double width, double height)
+    {
+        for (var i = 0; i < points.Count - 1; i++)
+        {
+            var distance = Geodesy.Distance(points[i], points[i + 1]);
+            if (distance < 0.05d)
+                continue;
+
+            var middle = GeographicMidpoint(points[i], points[i + 1]);
+            if (IsGeoPointVisible(camera, middle) &&
+                camera.ProjectGeo(middle, width, height, out var sx, out var sy, out var depth) &&
+                depth is >= -1f and <= 1f && !IsOutsideFlatViewport(camera, sx, sy, width, height))
+            {
+                DrawTextWithShadow(context, Geodesy.FormatDistance(distance),
+                    new Point(sx, sy - 10d), 11d, MeasureStroke, DefaultTypeface,
+                    centerAligned: true, allowOverlapCheck: true);
+            }
+        }
+    }
+
+    private void DrawGeoVertices(DrawingContext context, OrbitCamera camera, IReadOnlyList<GeoPoint> points,
+        double width, double height, double radius)
+    {
+        foreach (var point in points)
+            DrawGeoVertex(context, camera, point, width, height, radius);
+    }
+
+    private static void DrawGeoVertex(DrawingContext context, OrbitCamera camera, GeoPoint point,
+        double width, double height, double radius)
+    {
+        if (!IsGeoPointVisible(camera, point))
+            return;
+        if (!camera.ProjectGeo(point, width, height, out var sx, out var sy, out var depth))
+            return;
+        if (depth is < -1f or > 1f)
+            return;
+        if (IsOutsideFlatViewport(camera, sx, sy, width, height))
+            return;
+
+        context.DrawEllipse(MeasureVertexFill, new Pen(Brushes.White, 1d), new Point(sx, sy), radius, radius);
+    }
+
+    private static bool IsGeoPointVisible(OrbitCamera camera, GeoPoint point) =>
+        camera.IsFlat || !GeoMath.IsSegmentOccluded(camera.Position, ToWorld(point), 1f);
+
+    /// <summary>两点间的球面中点（用于在线段中间标注长度）。</summary>
+    private static GeoPoint GeographicMidpoint(GeoPoint a, GeoPoint b)
+    {
+        var va = GeoMath.LonLatToUnitVector(a.Longitude, a.Latitude);
+        var vb = GeoMath.LonLatToUnitVector(b.Longitude, b.Latitude);
+        var sum = va + vb;
+        if (sum.LengthSquared < 1e-9f)
+            return a;
+
+        GeoMath.UnitVectorToLonLat(sum, out var longitude, out var latitude);
+        return new GeoPoint(latitude, longitude);
+    }
+
+    /// <summary>绘制视口角落的比例尺：按当前相机在屏幕中心附近的真实地表距离选取整齐刻度。</summary>
+    private void DrawScaleBar(DrawingContext context, OrbitCamera camera, double width, double height)
+    {
+        var metersPerPixel = GetMetersPerPixel(camera, width, height);
+        if (!double.IsFinite(metersPerPixel) || metersPerPixel <= 0d)
+            return;
+
+        // 目标宽度 120px，取 1/2/5 × 10^n 中不超过目标的整齐距离
+        var target = metersPerPixel * 120d;
+        var power = Math.Pow(10d, Math.Floor(Math.Log10(Math.Max(1e-6d, target))));
+        var normalized = target / power;
+        var nice = normalized >= 5d ? 5d : normalized >= 2d ? 2d : 1d;
+        var distance = nice * power;
+        var barWidth = distance / metersPerPixel;
+        if (!double.IsFinite(barWidth) || barWidth < 20d || barWidth > width - 32d)
+            return;
+
+        var top = ScaleBarPlacement is GlobeScaleBarPlacement.TopLeft or GlobeScaleBarPlacement.TopRight;
+        var right = ScaleBarPlacement is GlobeScaleBarPlacement.TopRight or GlobeScaleBarPlacement.BottomRight;
+        var left = right ? width - 16d - barWidth : 16d;
+        var baseline = top ? 36d : height - 26d;
+
+        var background = new Rect(left - 10d, baseline - 26d, barWidth + 20d, 36d);
+        context.DrawRectangle(ScaleBarBackground, null, background, 4d, 4d);
+
+        var shadowPen = new Pen(ScaleBarShadow, 2.6d);
+        var pen = new Pen(ScaleBarStroke, 1.4d);
+        context.DrawLine(shadowPen, new Point(left + 1d, baseline + 1d), new Point(left + barWidth + 1d, baseline + 1d));
+        context.DrawLine(pen, new Point(left, baseline), new Point(left + barWidth, baseline));
+
+        foreach (var x in new[] { left, left + barWidth })
+        {
+            context.DrawLine(shadowPen, new Point(x + 1d, baseline - 4d), new Point(x + 1d, baseline + 5d));
+            context.DrawLine(pen, new Point(x, baseline - 5d), new Point(x, baseline + 5d));
+        }
+
+        DrawTextWithShadow(context, Geodesy.FormatDistance(distance),
+            new Point(left + barWidth * 0.5d, baseline - 14d), 11.5d, ScaleBarStroke,
+            DefaultTypeface, centerAligned: true);
+    }
+
+    /// <summary>在视口角落绘制当前缩放级别（Z x.x），与比例尺同角时自动错开。</summary>
+    private void DrawZoomLevel(DrawingContext context, OrbitCamera camera, double width, double height)
+    {
+        // LOD 使用物理像素，这里必须乘渲染缩放，否则高 DPI 下显示级别会偏高
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1d;
+        var level = camera.GetZoomLevel(width * scaling, height * scaling);
+        if (!double.IsFinite(level))
+            return;
+
+        // 文本布局每帧重做会明显拉低帧率：级别只保留一位小数，未变化时复用
+        var rounded = Math.Round(level, 1);
+        if (_zoomBadgeText == null || !_zoomBadgeLevel.Equals(rounded))
+        {
+            _zoomBadgeText = new FormattedText($"Z {rounded:0.0}", CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, DefaultTypeface, 11.5d, ScaleBarStroke);
+            _zoomBadgeLevel = rounded;
+        }
+
+        var formatted = _zoomBadgeText;
+
+        const double padX = 8d;
+        const double padY = 4d;
+        const double margin = 16d;
+        var boxWidth = formatted.Width + padX * 2d;
+        var boxHeight = formatted.Height + padY * 2d;
+
+        var top = ZoomLevelPlacement is GlobeScaleBarPlacement.TopLeft or GlobeScaleBarPlacement.TopRight;
+        var right = ZoomLevelPlacement is GlobeScaleBarPlacement.TopRight or GlobeScaleBarPlacement.BottomRight;
+        var x = right ? width - margin - boxWidth : margin;
+        var y = top ? margin : height - margin - boxHeight;
+
+        // 与比例尺停在同一角时留出一行，避免重叠
+        if (ShowScaleBar && ZoomLevelPlacement == ScaleBarPlacement)
+            y += top ? 44d : -44d;
+
+        x = Math.Clamp(x, 4d, Math.Max(4d, width - boxWidth - 4d));
+        y = Math.Clamp(y, 4d, Math.Max(4d, height - boxHeight - 4d));
+
+        var box = new Rect(x, y, boxWidth, boxHeight);
+        context.DrawRectangle(ScaleBarBackground, null, box, 4d, 4d);
+        context.DrawText(formatted, new Point(x + padX, y + padY));
+    }
+
+    /// <summary>以视口中心为基准，用相邻屏幕点对应的地表距离估算当前米/像素。</summary>
+    private static double GetMetersPerPixel(OrbitCamera camera, double width, double height)
+    {
+        var sample = Math.Clamp(width * 0.1d, 24d, 120d);
+        var y = height * 0.5d;
+        var x0 = width * 0.5d - sample * 0.5d;
+
+        if (camera.ScreenToGround(x0, y, width, height, out var a) &&
+            camera.ScreenToGround(x0 + sample, y, width, height, out var b))
+        {
+            var distance = Geodesy.Distance(a, b);
+            if (distance > 0d)
+                return distance / sample;
+        }
+
+        // 兜底：按高度与垂直视场角估算（正俯视近似），保证比例尺始终有值
+        if (camera.IsFlat)
+        {
+            // 平面模式：世界宽度为赤道周长，按中心纬度收缩为地面米数
+            var cosLat = Math.Max(0.01d, Math.Cos(camera.CenterLatitude * MathUtil.DegToRad));
+            return 2d * Math.PI * GeoMath.EarthRadius * cosLat /
+                   Math.Max(1d, camera.FlatScaleFactor * Math.Max(1d, height));
+        }
+
+        var altitude = Math.Max(1d, camera.AltitudeMeters);
+        var tanHalf = Math.Tan(camera.FieldOfView * MathUtil.DegToRad * 0.5d);
+        return 2d * altitude * tanHalf / Math.Max(1d, height);
     }
 
     #endregion

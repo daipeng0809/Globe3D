@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
@@ -200,24 +201,48 @@ public class GlobeLabel
 }
 
 /// <summary>
-/// 命名图层。一个图层包含标记点、区域与文字标注三类元素，可以整体显示/隐藏。
+/// 命名图层。一个图层包含标记点、区域、矢量图形与文字标注四类元素，可以整体显示/隐藏。
+/// 修改 <see cref="IsVisible"/> 会通知控件立即重绘，无需手动调用 Refresh。
 /// </summary>
-public class GlobeLayer
+public class GlobeLayer : INotifyPropertyChanged
 {
+    private string _name = string.Empty;
+    private bool _isVisible = true;
+
     public GlobeLayer()
     {
     }
 
     public GlobeLayer(string name)
     {
-        Name = name;
+        _name = name;
     }
 
     /// <summary>图层名称。</summary>
-    public string Name { get; set; } = string.Empty;
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (string.Equals(_name, value, StringComparison.Ordinal))
+                return;
+            _name = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+        }
+    }
 
-    /// <summary>图层整体是否可见。</summary>
-    public bool IsVisible { get; set; } = true;
+    /// <summary>图层整体是否可见（矢量图层可用它整体开关）。</summary>
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set
+        {
+            if (_isVisible == value)
+                return;
+            _isVisible = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVisible)));
+        }
+    }
 
     /// <summary>标记点集合。</summary>
     public AvaloniaList<GlobeMarker> Markers { get; } = new();
@@ -225,8 +250,13 @@ public class GlobeLayer
     /// <summary>区域集合。</summary>
     public AvaloniaList<GlobeRegion> Regions { get; } = new();
 
+    /// <summary>矢量图形集合（圆、方形、线条、折线、多边形）。</summary>
+    public AvaloniaList<GlobeVector> Vectors { get; } = new();
+
     /// <summary>文字标注集合。</summary>
     public AvaloniaList<GlobeLabel> Labels { get; } = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public override string ToString() => string.IsNullOrEmpty(Name) ? "Layer" : Name;
 }

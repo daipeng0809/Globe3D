@@ -3,6 +3,52 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-11-17
+
+### 新增
+
+- **矢量图形**：`GlobeLayer.Vectors` 支持圆形（`GlobeCircleVector`）、方形（`GlobeSquareVector`）、
+  线条/折线（`GlobePolylineVector`）与多边形（`GlobePolygonVector`）；`Fill = null` 即镂空，
+  可自定义边框颜色/宽度/虚线、中心标签与单个图形显隐；与区域共用大圆展开 + 可见半球裁剪，
+  平面模式按经度裁剪拆段，跨 ±180° 不横穿地图
+- **图层显隐**：`GlobeLayer` 实现 `INotifyPropertyChanged`，修改 `IsVisible` 立即重绘，
+  无需手动调用 `Refresh()`
+- **测量工具**：`ActiveTool` 提供距离、多边形/圆形/方形面积测量；单击落点、双击/右键完成、
+  Esc 取消；新增 `MeasurementCompleted` 事件、`Measurements` 结果列表、`AddMeasurement` 程序化添加、
+  `ClearMeasurements` / `CancelMeasurement`
+- **比例尺**：`ShowScaleBar` / `ScaleBarPlacement` 在视口角落绘制 1/2/5×10^n 的 m/km 刻度，
+  按视口中心真实地表距离换算，三维倾斜与平面模式都随相机变化
+- **测地线工具**：`Geodesy` 提供距离、目标点、圆/方形环、球面多边形面积、球冠面积与格式化
+- **缩放级别**：`GetZoomLevel()` / `ZoomToLevel()` / `ZoomLevel`（赋值即缩放）按瓦片层级与视口物理像素
+  自动换算相机高度；`MinZoomLevel` / `MaxZoomLevel` 约束缩放 API 与滚轮；`ShowZoomLevel` /
+  `ZoomLevelPlacement` 在视口角落显示 `Z x.x`；`OrbitCamera.GetZoomLevel` / `GetAltitudeForZoomLevel`
+  公开换算公式；示例新增 `--zoom-level-test` 与英文说明 [docs/zoom-level.md](docs/zoom-level.md)
+- **示例**：第二行工具栏（比例尺、矢量图层显隐、四种测量、清除）与 `--vector-test` 回归参数；
+  新增英文说明 [docs/vector-measure.md](docs/vector-measure.md)
+
+### 修复
+
+- 平面模式跨 ±180° 的折线/多边形：经度裁剪交点钉到 ±180° 边界，修复浮点越界被折回另一侧、
+  导致线段横贯整张地图与填充异常的问题（区域与矢量共用该裁剪修正）
+- `Geodesy.PolygonArea` 对包住极点的多边形会得到“全球面积 − 实际面积”：改为超过半球时取补集，
+  极区测量不再显示接近全球的数值
+- 圆形/方形测量在双击结束时残留一个无意义的新圆心草稿点：双击的第二次松手统一抑制
+- `AddMeasurement` 不再清除当前鼠标交互草稿，且交互完成时先清空草稿再触发 `MeasurementCompleted`
+- `Geodesy` 对非有限输入做防御，目标点推算在极点附近微幅内缩，圆/方形在极点仍能生成有效环；
+  `GlobeCircleVector` / `GlobeSquareVector` 缓存经纬度环，避免相机拖动时每帧重算三角函数
+- 比例尺在平面模式的地图边缘兜底估算按中心纬度换算，不再退化为与纬度无关的值
+- `ActiveTool` 切换不再在属性回调里抢键盘焦点：改为点击地球时获取焦点，避免影响宿主输入控件
+- 测量/比例尺数值增加千分位分隔（如 `1,069 km`、`787,941.65 km²`）
+
+### 文档
+
+- 中英文 README 的图标/预览图链接固定到 `v2.1.0`；新增 [docs/vector-measure.md](docs/vector-measure.md) 与
+  [docs/zoom-level.md](docs/zoom-level.md) 说明矢量测量与缩放级别的公式、交互和限制
+
+### 变更
+
+- 版本号提升为 2.1.0
+
 ## [2.0.2] - 2026-11-17
 
 ### 修复

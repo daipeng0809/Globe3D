@@ -103,6 +103,7 @@ public partial class GlobeView : Panel
     {
         Background = Brushes.Transparent;
         ClipToBounds = true;
+        Focusable = true;
 
         _surface = new GlobeSurface();
 
@@ -111,7 +112,8 @@ public partial class GlobeView : Panel
             IsHitTestVisible = false,
             Camera = _surface.Camera,
             Layers = Layers,
-            HoverRadius = MarkerHoverRadius
+            HoverRadius = MarkerHoverRadius,
+            Measurements = _measurements
         };
 
         Children.Add(_surface);
@@ -214,6 +216,19 @@ public partial class GlobeView : Panel
     /// <summary>点击时判定命中标记点的最大距离（像素），允许点击落在图标旁边一点。</summary>
     public static readonly StyledProperty<double> MarkerHitToleranceProperty =
         AvaloniaProperty.Register<GlobeView, double>(nameof(MarkerHitTolerance), 6d);
+
+    /// <summary>是否在视口角落显示比例尺。</summary>
+    public static readonly StyledProperty<bool> ShowScaleBarProperty =
+        AvaloniaProperty.Register<GlobeView, bool>(nameof(ShowScaleBar));
+
+    /// <summary>比例尺停靠位置。</summary>
+    public static readonly StyledProperty<GlobeScaleBarPlacement> ScaleBarPlacementProperty =
+        AvaloniaProperty.Register<GlobeView, GlobeScaleBarPlacement>(nameof(ScaleBarPlacement),
+            GlobeScaleBarPlacement.BottomLeft);
+
+    /// <summary>当前启用的测量工具。</summary>
+    public static readonly StyledProperty<GlobeTool> ActiveToolProperty =
+        AvaloniaProperty.Register<GlobeView, GlobeTool>(nameof(ActiveTool), GlobeTool.None);
 
     public double CenterLatitude
     {
@@ -351,7 +366,29 @@ public partial class GlobeView : Panel
         set => SetValue(MarkerHitToleranceProperty, value);
     }
 
-    /// <summary>图层集合。每个图层可包含标记点、区域与文字标注。</summary>
+    public bool ShowScaleBar
+    {
+        get => GetValue(ShowScaleBarProperty);
+        set => SetValue(ShowScaleBarProperty, value);
+    }
+
+    public GlobeScaleBarPlacement ScaleBarPlacement
+    {
+        get => GetValue(ScaleBarPlacementProperty);
+        set => SetValue(ScaleBarPlacementProperty, value);
+    }
+
+    /// <summary>
+    /// 当前测量工具：默认 <see cref="GlobeTool.None"/>。启用后左键单击添加测量点，
+    /// 双击/右键完成或取消，测量结果以矢量方式绘制在地表上。
+    /// </summary>
+    public GlobeTool ActiveTool
+    {
+        get => GetValue(ActiveToolProperty);
+        set => SetValue(ActiveToolProperty, value);
+    }
+
+    /// <summary>图层集合。每个图层可包含标记点、区域、矢量图形与文字标注。</summary>
     [Content]
     public AvaloniaList<GlobeLayer> Layers { get; } = new();
 
@@ -401,6 +438,10 @@ public partial class GlobeView : Panel
             change.Property == HeadingProperty || change.Property == MinAltitudeProperty ||
             change.Property == MaxAltitudeProperty)
         {
+            // 用户直接设置高度时，取消布局前暂存的缩放级别请求
+            if (change.Property == AltitudeProperty)
+                _pendingZoomLevel = null;
+
             ApplyCameraProperties();
             Refresh();
         }
@@ -458,6 +499,24 @@ public partial class GlobeView : Panel
         else if (change.Property == MarkerHoverRadiusProperty)
         {
             _overlay.HoverRadius = MarkerHoverRadius;
+        }
+        else if (change.Property == ShowScaleBarProperty || change.Property == ScaleBarPlacementProperty)
+        {
+            _overlay.ShowScaleBar = ShowScaleBar;
+            _overlay.ScaleBarPlacement = ScaleBarPlacement;
+            _overlay.InvalidateVisual();
+        }
+        else if (change.Property == ActiveToolProperty)
+        {
+            OnActiveToolChanged();
+        }
+        else if (change.Property == MinZoomLevelProperty || change.Property == MaxZoomLevelProperty)
+        {
+            OnZoomLimitsChanged();
+        }
+        else if (change.Property == ShowZoomLevelProperty || change.Property == ZoomLevelPlacementProperty)
+        {
+            OnZoomDisplayChanged();
         }
         else if (change.Property == TileSourceProperty)
         {
@@ -602,6 +661,10 @@ public partial class GlobeView : Panel
 
     private void OnSurfaceFrameRendered()
     {
+        // 首帧后 GL 表面已测出真实的物理像素尺寸；延迟到 UI 线程应用布局前的缩放请求
+        if (_pendingZoomLevel is not null)
+            Dispatcher.UIThread.Post(ApplyPendingZoomLevel, DispatcherPriority.Render);
+
         _overlay.InvalidateVisual();
     }
 
@@ -636,16 +699,27 @@ public partial class GlobeView : Panel
 
     private void AttachLayer(GlobeLayer layer)
     {
+        layer.PropertyChanged += OnLayerPropertyChanged;
         layer.Markers.CollectionChanged += OnLayerContentChanged;
         layer.Regions.CollectionChanged += OnLayerContentChanged;
+        layer.Vectors.CollectionChanged += OnLayerContentChanged;
         layer.Labels.CollectionChanged += OnLayerContentChanged;
     }
 
     private void DetachLayer(GlobeLayer layer)
     {
+        layer.PropertyChanged -= OnLayerPropertyChanged;
         layer.Markers.CollectionChanged -= OnLayerContentChanged;
         layer.Regions.CollectionChanged -= OnLayerContentChanged;
+        layer.Vectors.CollectionChanged -= OnLayerContentChanged;
         layer.Labels.CollectionChanged -= OnLayerContentChanged;
+    }
+
+    /// <summary>图层整体显示/隐藏时立即重绘覆盖层，无需调用方手动 Refresh。</summary>
+    private void OnLayerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GlobeLayer.IsVisible))
+            _overlay.InvalidateVisual();
     }
 
     private void OnLayerContentChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -661,6 +735,8 @@ public partial class GlobeView : Panel
     /// <summary>立即把视角定位到指定经纬度与高度。</summary>
     public void JumpTo(double latitude, double longitude, double altitudeMeters)
     {
+        _pendingZoomLevel = null;
+
         _syncing = true;
         try
         {
@@ -681,6 +757,7 @@ public partial class GlobeView : Panel
     /// <summary>平滑飞行到指定经纬度与高度。</summary>
     public void FlyTo(double latitude, double longitude, double altitudeMeters, TimeSpan? duration = null)
     {
+        _pendingZoomLevel = null;
         StartFlight(latitude, longitude, altitudeMeters, duration ?? TimeSpan.FromMilliseconds(900));
     }
 
@@ -779,6 +856,10 @@ public partial class GlobeView : Panel
     /// </summary>
     public void UpdateHoverMarker(Point? position)
     {
+        // 测量工具优先：工具激活时不做标记悬停，避免十字光标与提示框互相干扰
+        if (ActiveTool != GlobeTool.None)
+            position = null;
+
         var marker = position is { } point
             ? _overlay.FindNearestMarker(point, MarkerHoverRadius, requireHoverTip: true)
             : null;

@@ -197,11 +197,32 @@ public partial class GlobeView
     {
         base.OnPointerPressed(e);
 
+        // 工具模式下点击地球时获取键盘焦点，Esc 才能取消当前草稿；
+        // 不在 ActiveTool 属性回调里抢焦点，避免代码切换工具时影响宿主输入控件
+        if (ActiveTool != GlobeTool.None)
+            Focus();
+
         var point = e.GetCurrentPoint(this);
         var position = point.Position;
 
         if (e.ClickCount >= 2 && point.Properties.IsLeftButtonPressed)
         {
+            if (ActiveTool != GlobeTool.None)
+            {
+                // 距离/多边形双击结束；圆形/方形的完成发生在双击的第一次单击，
+                // 第二次按下/松手必须整体抑制，否则会残留一个新的草稿点
+                if (ActiveTool is GlobeTool.Distance or GlobeTool.AreaPolygon)
+                    FinishMeasurementDraft();
+
+                _suppressNextToolClick = true;
+
+                // 双击的第二次按下不进入拖动，清理上一次手势的状态，避免拖动标记残留
+                _dragMode = DragMode.None;
+                _dragged = false;
+                e.Handled = true;
+                return;
+            }
+
             if (_camera.ScreenToGround(position.X, position.Y, Bounds.Width, Bounds.Height, out var target))
             {
                 var altitude = Math.Max(MinAltitude, _camera.AltitudeMeters * 0.35d);
@@ -219,6 +240,8 @@ public partial class GlobeView
             // 平面地图没有倾斜/航向概念，右键拖动不处理
             if (_camera.IsFlat)
             {
+                _dragMode = DragMode.None;
+                _dragged = false;
                 e.Handled = true;
                 return;
             }
@@ -253,6 +276,14 @@ public partial class GlobeView
 
         if (_dragMode == DragMode.None)
         {
+            // 测量工具激活时只更新测量预览，不做标记悬停
+            if (ActiveTool != GlobeTool.None)
+            {
+                UpdateToolPointer(point.Position);
+                RaisePointerMoved(point.Position);
+                return;
+            }
+
             // 空闲状态下持续更新“接近标记点”的高亮与提示，并对外广播鼠标移动事件
             UpdateHoverMarker(point.Position);
             RaisePointerMoved(point.Position);
@@ -298,6 +329,30 @@ public partial class GlobeView
         if (!dragged)
         {
             var point = e.GetCurrentPoint(this);
+
+            if (ActiveTool != GlobeTool.None)
+            {
+                if (_suppressNextToolClick)
+                {
+                    _suppressNextToolClick = false;
+                }
+                else if (e.InitialPressMouseButton == MouseButton.Left)
+                {
+                    if (_camera.ScreenToGround(point.Position.X, point.Position.Y, Bounds.Width, Bounds.Height,
+                            out var geo))
+                    {
+                        UpdateToolPointer(point.Position);
+                        HandleToolClick(geo);
+                    }
+                }
+                else if (e.InitialPressMouseButton == MouseButton.Right)
+                {
+                    HandleToolRightClick();
+                }
+
+                e.Handled = true;
+                return;
+            }
 
             // 单击时按“离图标最近”查找：允许点偏一点也能命中最近的标记点
             var marker = _overlay.FindNearestMarker(point.Position, Math.Max(0d, MarkerHitTolerance));
@@ -349,11 +404,24 @@ public partial class GlobeView
     {
         base.OnPointerExited(e);
 
-        // 鼠标离开控件时收起接近提示
+        // 鼠标离开控件时收起接近提示，并清掉测量预览（保留已落下的顶点）
         if (_dragMode == DragMode.None)
         {
             _pointerPosition = null;
+            ClearToolPointer();
             UpdateHoverMarker(null);
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+
+        // Esc：放弃当前测量草稿（已完成的测量结果保留）
+        if (e.Key == Key.Escape && ActiveTool != GlobeTool.None && IsMeasureInProgress)
+        {
+            CancelMeasurement();
+            e.Handled = true;
         }
     }
 
@@ -379,7 +447,21 @@ public partial class GlobeView
 
         var altitude = Math.Max(500d, _camera.AltitudeMeters);
         var factor = Math.Pow(0.80d, delta * Math.Clamp(ZoomSensitivity, 0.1d, 5d));
-        _camera.SetAltitude(altitude * factor);
+        var targetAltitude = altitude * factor;
+
+        // 缩放级别上下限：只有目标级别超出限制时才改用级别反算高度，
+        // 未设限制时保持原有的“高度乘系数”手感
+        var (zoomWidth, zoomHeight) = GetZoomViewport();
+        var currentLevel = _camera.GetZoomLevel(zoomWidth, zoomHeight);
+        if (double.IsFinite(currentLevel) && double.IsFinite(zoomHeight))
+        {
+            var targetLevel = currentLevel - Math.Log2(factor);
+            var clampedLevel = ClampZoomLevel(targetLevel);
+            if (Math.Abs(clampedLevel - targetLevel) > 1e-9d)
+                targetAltitude = GetTargetAltitudeForZoomLevel(clampedLevel, zoomWidth, zoomHeight);
+        }
+
+        _camera.SetAltitude(targetAltitude);
         _camera.Normalize();
 
         if (_camera.IsFlat && anchor is { } anchorGeo)

@@ -24,6 +24,9 @@ public sealed class OrbitCamera
     /// <summary>垂直视场角（度）。</summary>
     public double FieldOfView { get; set; } = 45.0;
 
+    /// <summary>Web 墨卡托瓦片边长（像素），与瓦片 LOD 的假设一致。</summary>
+    public const double AssumedTileSize = 256d;
+
     /// <summary>是否使用二维平面（Web 墨卡托）投影；为 false 时使用三维球面。</summary>
     public bool IsFlat { get; set; }
 
@@ -281,6 +284,76 @@ public sealed class OrbitCamera
         var world = GeoMath.LonLatToUnitVector(geo.Longitude, geo.Latitude) *
                     GeoMath.AltitudeToRadius(geo.Altitude);
         return Project(world, viewWidth, viewHeight, out screenX, out screenY, out ndcDepth);
+    }
+
+    /// <summary>
+    /// 按视口像素尺寸估算当前缩放级别（瓦片层级，与瓦片 LOD 使用同一套公式）。
+    /// </summary>
+    /// <param name="viewWidth">视口宽度（像素）。为与 LOD 一致，应传物理像素。</param>
+    /// <param name="viewHeight">视口高度（像素）。为与 LOD 一致，应传物理像素。</param>
+    /// <remarks>
+    /// 平面模式：level = log2(FlatScaleFactor × 视口高度 / 256)。
+    /// 三维模式：按屏幕中心附近的真实地表米/像素与中心纬度换算。
+    /// </remarks>
+    public double GetZoomLevel(double viewWidth, double viewHeight)
+    {
+        var width = Math.Max(1d, viewWidth);
+        var height = Math.Max(1d, viewHeight);
+
+        if (IsFlat)
+        {
+            var worldPixels = FlatScaleFactor * height;
+            return Math.Log2(Math.Max(1d, worldPixels) / AssumedTileSize);
+        }
+
+        var metersPerPixel = GetMetersPerPixelAtCenter(width, height);
+        if (!double.IsFinite(metersPerPixel) || metersPerPixel <= 0d)
+            return double.NaN;
+
+        var cosLatitude = Math.Max(0.02d, Math.Cos(CenterLatitude * MathUtil.DegToRad));
+        var circumference = 2d * Math.PI * GeoMath.EarthRadius * cosLatitude;
+        return Math.Log2(circumference / (AssumedTileSize * metersPerPixel));
+    }
+
+    /// <summary>
+    /// 按缩放级别估算相机离地高度（正俯视、中心纬度近似），用于根据瓦片层级定位镜头。
+    /// </summary>
+    /// <param name="level">缩放级别（瓦片层级）。</param>
+    /// <param name="viewHeight">视口高度（像素）。为与 LOD 一致，应传物理像素。</param>
+    /// <remarks>
+    /// 平面模式与纬度无关；三维模式按中心纬度做 cos 收缩。倾斜视角下实际显示级别会有少量偏差。
+    /// </remarks>
+    public double GetAltitudeForZoomLevel(double level, double viewHeight)
+    {
+        var height = Math.Max(1d, viewHeight);
+        var tanHalf = Math.Max(1e-4d, Math.Tan(FieldOfView * MathUtil.DegToRad * 0.5d));
+        var worldPixels = AssumedTileSize * Math.Pow(2d, Math.Clamp(level, -30d, 40d));
+
+        if (IsFlat)
+            return Math.PI * GeoMath.EarthRadius * height / (worldPixels * tanHalf);
+
+        var cosLatitude = Math.Max(0.02d, Math.Cos(CenterLatitude * MathUtil.DegToRad));
+        return Math.PI * GeoMath.EarthRadius * cosLatitude * height / (worldPixels * tanHalf);
+    }
+
+    /// <summary>屏幕中心附近的真实地表米/像素；射线未命中时按高度与视场角估算。</summary>
+    private double GetMetersPerPixelAtCenter(double viewWidth, double viewHeight)
+    {
+        var sample = Math.Clamp(viewWidth * 0.1d, 24d, 160d);
+        var x0 = viewWidth * 0.5d - sample * 0.5d;
+        var y = viewHeight * 0.5d;
+
+        if (ScreenToGround(x0, y, viewWidth, viewHeight, out var a) &&
+            ScreenToGround(x0 + sample, y, viewWidth, viewHeight, out var b))
+        {
+            var distance = Geodesy.Distance(a, b);
+            if (distance > 0d)
+                return distance / sample;
+        }
+
+        var altitude = Math.Max(1d, AltitudeMeters);
+        var tanHalf = Math.Tan(FieldOfView * MathUtil.DegToRad * 0.5d);
+        return 2d * altitude * tanHalf / Math.Max(1d, viewHeight);
     }
 
     /// <summary>判断某个世界坐标点是否位于可见区域。平面模式下按屏幕范围判断。</summary>

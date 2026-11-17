@@ -73,6 +73,12 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
     /// <summary>相机。</summary>
     public OrbitCamera Camera { get; } = new();
 
+    /// <summary>最近一次实际渲染的视口宽度（物理像素），与瓦片 LOD 使用同一尺寸。</summary>
+    internal double PixelWidth => _pixelWidth;
+
+    /// <summary>最近一次实际渲染的视口高度（物理像素），与瓦片 LOD 使用同一尺寸。</summary>
+    internal double PixelHeight => _pixelHeight;
+
     /// <summary>渲染统计：本帧绘制的瓦片数。</summary>
     public int DrawnTileCount { get; private set; }
 
