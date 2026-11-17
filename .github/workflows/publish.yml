@@ -6,7 +6,7 @@ on:
       ref:
         description: Git ref to publish (tag or branch)
         required: true
-        default: v2.0.0
+        default: v2.0.1
   push:
     tags:
       - 'v*'

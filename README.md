@@ -1,10 +1,12 @@
+<img src="https://raw.githubusercontent.com/daipeng0809/Globe3D/master/assets/globe3d-icon.png" width="112" height="112" alt="Globe3D.Avalonia icon">
+
 # Globe3D.Avalonia
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](https://github.com/daipeng0809/Globe3D/blob/master/README.zh-CN.md)
 
 [![NuGet](https://img.shields.io/nuget/v/Globe3D.Avalonia.svg)](https://www.nuget.org/packages/Globe3D.Avalonia)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Globe3D.Avalonia.svg)](https://www.nuget.org/packages/Globe3D.Avalonia)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/daipeng0809/Globe3D/blob/master/LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-net8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Avalonia](https://img.shields.io/badge/Avalonia-12.1.1-8B4FBF.svg)](https://avaloniaui.net/)
 
@@ -12,7 +14,7 @@ A real-time 3D globe control for Avalonia 12. It renders imagery tiles, a proced
 atmospheric scattering with OpenGL ES 3.0, and overlays 3D markers (PNG/JPG/GIF/SVG icons), region
 polygons and text labels. The same control can switch to a flat 2D Web Mercator map at runtime.
 
-![Preview](docs/screenshot.png)
+![Preview](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/screenshot.png)
 
 ## Table of contents
 
@@ -82,13 +84,13 @@ polygons and text labels. The same control can switch to a flat 2D Web Mercator 
 ## Installation
 
 ```bash
-dotnet add package Globe3D.Avalonia --version 2.0.0
+dotnet add package Globe3D.Avalonia --version 2.0.1
 ```
 
 Or in a project file:
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.0.0" />
+<PackageReference Include="Globe3D.Avalonia" Version="2.0.1" />
 ```
 
 XAML namespace:
@@ -250,7 +252,7 @@ Console.WriteLine($"{stats.FramesPerSecond:0.0} fps, score {stats.SmoothnessScor
 
 The HUD shows a 0-100 smoothness score (frame cost 45%, jitter 20%, achieved FPS 35% against a fixed
 60 FPS target), FPS, refresh estimate, frame cost, drawn tiles/textures, LOD and selection time,
-loader queue, and MBTiles/disk/network tile I/O. See [docs/performance-panel.md](docs/performance-panel.md)
+loader queue, and MBTiles/disk/network tile I/O. See [docs/performance-panel.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/performance-panel.md)
 for the formulas, idle behaviour and limitations.
 
 ### Flat (2D) mode
@@ -270,9 +272,9 @@ In flat mode:
 - Regions crossing the antimeridian are split into two parts.
 - The same tile LOD, markers, regions, labels, hover, click and `FindNearestMarker` APIs are used.
 
-![3D vs flat with Heading/Pitch](docs/flat-mode-heading-pitch.png)
+![3D vs flat with Heading/Pitch](https://raw.githubusercontent.com/daipeng0809/Globe3D/master/docs/flat-mode-heading-pitch.png)
 
-See [docs/flat-mode.md](docs/flat-mode.md) for details and implementation notes.
+See [docs/flat-mode.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/flat-mode.md) for details and implementation notes.
 
 ## Data sources
 
@@ -347,7 +349,7 @@ geographic overloads.
 
 > `CoordinateSystem` is metadata only. The control still requests WGS84 Web Mercator tile indices
 > and does not warp GCJ-02/BD-09 raster imagery automatically. Convert your data, pre-process the
-> tiles, or use a WGS84 source. See [docs/coordinate-systems.md](docs/coordinate-systems.md).
+> tiles, or use a WGS84 source. See [docs/coordinate-systems.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/coordinate-systems.md).
 
 ### Composite sources
 
@@ -478,23 +480,23 @@ dotnet publish samples/Globe3D.Demo -c Release -r win-x64
 
 The output contains the native executable plus ANGLE (`av_libglesv2.dll`), SQLite
 (`e_sqlite3.dll`), Skia and HarfBuzz native libraries. Windows Native AOT requires the MSVC C++
-toolchain. See [docs/native-aot.md](docs/native-aot.md).
+toolchain. See [docs/native-aot.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/native-aot.md).
 
 ## Packaging and release
 
 ```bash
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.0.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.0.1.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 
 `RepositoryUrl` and `PackageProjectUrl` are configured in the project file. Update
-[CHANGELOG.md](CHANGELOG.md) and the version for each release.
+[CHANGELOG.md](https://github.com/daipeng0809/Globe3D/blob/master/CHANGELOG.md) and the version for each release.
 
 ## Version history
 
-See [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](https://github.com/daipeng0809/Globe3D/blob/master/CHANGELOG.md).
 
 ## License
 

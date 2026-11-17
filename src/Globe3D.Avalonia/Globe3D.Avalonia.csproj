@@ -17,10 +17,11 @@
     <!-- 把裁剪/AOT 诊断提升为错误，避免后续改动静默引入反射依赖（当前为零告警） -->
     <WarningsAsErrors>$(WarningsAsErrors);IL2026;IL2067;IL3050</WarningsAsErrors>
 
-    <Version>2.0.0</Version>
+    <Version>2.0.1</Version>
     <Authors>daipeng0809</Authors>
     <Description>面向 Avalonia 的实时三维地球控件：影像瓦片、程序化星空、大气散射、区域与标注图层、三维标记点（支持 png/jpg/gif/svg 图标），支持鼠标交互，兼容 Native AOT。</Description>
     <PackageId>Globe3D.Avalonia</PackageId>
+    <PackageIcon>globe3d-icon.png</PackageIcon>
     <PackageTags>avalonia;3d;globe;earth;map;tiles;mbtiles;opengl;gis;marker;aot;nativeaot;trimming</PackageTags>
     <RepositoryUrl>https://github.com/daipeng0809/Globe3D.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -43,6 +44,7 @@
   <!-- NuGet 包内附带说明文件：README 作为包描述页，CHANGELOG/License 跟包发布 -->
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\globe3d-icon.png" Pack="true" PackagePath="\" />
     <None Include="..\..\CHANGELOG.md" Pack="true" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>

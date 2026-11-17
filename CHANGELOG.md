@@ -3,6 +3,23 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.1] - 2026-11-17
+
+### 修复
+
+- NuGet 包页 README 中的预览图与平面模式对比图改用 `raw.githubusercontent.com` 绝对地址，
+  NuGet 页面不再出现破图；说明文档链接也改为 GitHub 绝对地址
+- NuGet 发布工作流修复 snupkg 重复推送，并增加 `--skip-duplicate`，避免重跑时 409
+
+### 新增
+
+- 新增 512×512 包图标 `assets/globe3d-icon.png`（附 SVG 源文件），通过 `PackageIcon` 随包发布，
+  同时显示在 README 顶部
+
+### 变更
+
+- 版本号提升为 2.0.1
+
 ## [2.0.0] - 2026-11-17
 
 ### 变更（破坏性）

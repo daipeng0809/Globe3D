@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Globe3D.Avalonia icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06111f"/>
+      <stop offset="0.55" stop-color="#0a223a"/>
+      <stop offset="1" stop-color="#0d3150"/>
+    </linearGradient>
+    <radialGradient id="sphere" cx="0.38" cy="0.30" r="0.75">
+      <stop offset="0" stop-color="#4fe4ff"/>
+      <stop offset="0.22" stop-color="#1b9ec9"/>
+      <stop offset="0.62" stop-color="#0d527d"/>
+      <stop offset="1" stop-color="#061f38"/>
+    </radialGradient>
+    <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4fe4ff" stop-opacity="0.15"/>
+      <stop offset="0.5" stop-color="#8df4ff"/>
+      <stop offset="1" stop-color="#2b9cff" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffcf6a"/>
+      <stop offset="0.45" stop-color="#ff9d2e"/>
+      <stop offset="1" stop-color="#f05a28"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="globe-clip">
+      <circle cx="256" cy="256" r="142"/>
+    </clipPath>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)" stroke="#1b5378" stroke-width="6"/>
+
+  <circle cx="256" cy="256" r="188" fill="none" stroke="#27d7ff" stroke-opacity="0.10" stroke-width="38"/>
+  <circle cx="256" cy="256" r="172" fill="none" stroke="#27d7ff" stroke-opacity="0.12" stroke-width="18"/>
+
+  <g transform="rotate(-24 256 256)">
+    <ellipse cx="256" cy="256" rx="205" ry="72" fill="none" stroke="url(#orbit)" stroke-width="8"/>
+    <circle cx="59" cy="230" r="9" fill="#ffb54d"/>
+    <circle cx="59" cy="230" r="16" fill="#ffb54d" opacity="0.18"/>
+  </g>
+
+  <circle cx="256" cy="256" r="142" fill="url(#sphere)" stroke="#7defff" stroke-width="4"/>
+  <circle cx="256" cy="256" r="142" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="12"/>
+
+  <g clip-path="url(#globe-clip)" fill="none" stroke="#a7f4ff" stroke-opacity="0.58" stroke-width="2.4">
+    <ellipse cx="256" cy="256" rx="142" ry="38"/>
+    <ellipse cx="256" cy="256" rx="110" ry="142"/>
+    <ellipse cx="256" cy="256" rx="62" ry="142"/>
+    <ellipse cx="256" cy="256" rx="142" ry="88"/>
+    <ellipse cx="256" cy="256" rx="142" ry="120"/>
+    <path d="M114 256h284"/>
+  </g>
+
+  <path d="M256 118c-62 0-112 46-112 102 0 78 112 178 112 178s112-100 112-178c0-56-50-102-112-102Z" fill="#041727" opacity="0.38" transform="translate(10 8)"/>
+  <path d="M348 118c-42 0-76 31-76 70 0 55 76 133 76 133s76-78 76-133c0-39-34-70-76-70Z" fill="url(#pin)" stroke="#ffd88a" stroke-width="3"/>
+  <circle cx="348" cy="188" r="27" fill="#10243a"/>
+  <circle cx="348" cy="188" r="17" fill="#ffd88a"/>
+  <circle cx="341" cy="181" r="6" fill="#ffffff" opacity="0.75"/>
+
+  <path d="M256 114c-78 0-142 64-142 142" fill="none" stroke="url(#glass)" stroke-linecap="round" stroke-width="10"/>
+  <circle cx="148" cy="166" r="4" fill="#c8f8ff" opacity="0.9"/>
+  <circle cx="390" cy="128" r="3" fill="#c8f8ff" opacity="0.65"/>
+  <circle cx="414" cy="354" r="4" fill="#c8f8ff" opacity="0.55"/>
+  <circle cx="110" cy="346" r="3" fill="#c8f8ff" opacity="0.5"/>
+</svg>
