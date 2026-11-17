@@ -40,8 +40,21 @@ jobs:
 
       - name: Push package and symbols
         run: |
-          for package in artifacts/*.nupkg artifacts/*.snupkg; do
+          for package in artifacts/*.nupkg; do
+            case "$package" in
+              *.snupkg) continue ;;
+            esac
+            [ -e "$package" ] || continue
             dotnet nuget push "$package" \
               --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
-              --source https://api.nuget.org/v3/index.json
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
+
+          for package in artifacts/*.snupkg; do
+            [ -e "$package" ] || continue
+            dotnet nuget push "$package" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
           done
