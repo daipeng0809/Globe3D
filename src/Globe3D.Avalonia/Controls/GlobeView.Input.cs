@@ -79,6 +79,16 @@ public partial class GlobeView
         {
             _camera.CenterLongitude += AutoRotateSpeed * dt;
             _camera.Normalize();
+
+            // 平面地图不循环：自动旋转也在视口边界停止，否则属性会继续增长到 ±180° 再回绕，
+            // 关闭旋转或缩小视图时出现中心跳变
+            if (_camera.IsFlat)
+            {
+                var mercatorX = (MathUtil.NormalizeLongitude(_camera.CenterLongitude) + 180d) / 360d;
+                var mercatorY = GeoMath.LatitudeToMercatorY(_camera.CenterLatitude);
+                _camera.SetFlatCenter(mercatorX, mercatorY, Bounds.Width, Bounds.Height);
+            }
+
             changed = true;
         }
 
@@ -120,6 +130,15 @@ public partial class GlobeView
         _camera.CenterLongitude += _inertiaLongitudeSpeed * dt;
         _camera.CenterLatitude += _inertiaLatitudeSpeed * dt;
         _camera.Normalize();
+
+        // 平面模式的地图在 ±180°/Web 墨卡托边界停止：惯性也必须夹在视口内，
+        // 否则属性中的中心会滑到地图外，缩放回来时出现跳变
+        if (_camera.IsFlat)
+        {
+            var mercatorX = (MathUtil.NormalizeLongitude(_camera.CenterLongitude) + 180d) / 360d;
+            var mercatorY = GeoMath.LatitudeToMercatorY(_camera.CenterLatitude);
+            _camera.SetFlatCenter(mercatorX, mercatorY, Bounds.Width, Bounds.Height);
+        }
 
         var decay = Math.Exp(-2.6d * dt);
         _inertiaLongitudeSpeed *= decay;
@@ -524,8 +543,10 @@ public partial class GlobeView
     /// <summary>平面模式下左键拖动平移地图，并按拖动速度累积惯性。</summary>
     private void ApplyFlatPanDrag(double dx, double dy)
     {
-        var beforeLongitude = _camera.CenterLongitude;
-        var beforeLatitude = _camera.CenterLatitude;
+        // 以上一帧实际显示的平面中心为基准计算惯性；中心可能已被视口夹取，
+        // 直接用请求中心会导致第一段拖拽的惯性速度异常
+        var beforeLongitude = _camera.EffectiveCenterLongitude;
+        var beforeLatitude = _camera.EffectiveCenterLatitude;
         _camera.PanFlatByPixels(dx, dy, Bounds.Width, Bounds.Height);
 
         var deltaLongitude = MathUtil.NormalizeLongitudeDelta(_camera.CenterLongitude - beforeLongitude);

@@ -91,20 +91,20 @@ public partial class MainWindow : Window
         else if (args.Contains("--orientation-test"))
         {
             // 验证平面模式不应用 Heading/Pitch，且切回三维后仍保留原值
-            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = true, TimeSpan.FromSeconds(1));
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = true, TimeSpan.FromSeconds(2));
             DispatcherTimer.RunOnce(() =>
             {
                 Globe.Heading = 60d;
                 Globe.Pitch = 50d;
-            }, TimeSpan.FromSeconds(1.5));
+            }, TimeSpan.FromSeconds(2.5));
             DispatcherTimer.RunOnce(() =>
                 Program.Log($"[MODE] flat={Globe.IsFlatMode} heading={Globe.Heading:0} pitch={Globe.Pitch:0}"),
-                TimeSpan.FromSeconds(2));
-            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = false, TimeSpan.FromSeconds(4));
+                TimeSpan.FromSeconds(3));
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = false, TimeSpan.FromSeconds(5));
             DispatcherTimer.RunOnce(() =>
                 Program.Log($"[MODE] flat={Globe.IsFlatMode} heading={Globe.Heading:0} pitch={Globe.Pitch:0} " +
                             $"lod={Globe.GetDrawnZoomRange()}"),
-                TimeSpan.FromSeconds(5));
+                TimeSpan.FromSeconds(6));
         }
         else if (args.Contains("--coordinate-test"))
         {
@@ -298,6 +298,120 @@ public partial class MainWindow : Window
                 Program.Log($"[ZOOM] pitch55 level={Globe.GetZoomLevel():0.00} " +
                             $"alt={Globe.Altitude / 1000d:0}km");
             }, TimeSpan.FromSeconds(9.5));
+        }
+        else if (args.Contains("--view-api-test"))
+        {
+            // 视图 API 回归：切换保持缩放级别、SetView 原子定位、
+            // 平面视口夹取不回写中心、低空 Pitch 反解后视线仍命中中心点
+            Globe.SetView(10d, 20d, 4d);
+            DispatcherTimer.RunOnce(() =>
+            {
+                Program.Log($"[VIEW] pre-layout setview level={Globe.GetZoomLevel():0.000} " +
+                            $"center={Globe.CenterLatitude:0.####},{Globe.CenterLongitude:0.####} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(1));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.SetView(32d, 108d, 5d);
+                Program.Log($"[VIEW] 3d setview level={Globe.GetZoomLevel():0.000} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(1.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                var before = Globe.GetZoomLevel();
+                Globe.SetFlatMode(true);
+                Program.Log($"[VIEW] flat on level {before:0.000}->{Globe.GetZoomLevel():0.000} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(2.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.SetView(80d, 179d, 10d);
+                Program.Log($"[VIEW] flat setview level={Globe.GetZoomLevel():0.000} " +
+                            $"requested={Globe.CenterLatitude:0.####},{Globe.CenterLongitude:0.####} " +
+                            $"effective={Globe.Camera.EffectiveCenterLatitude:0.####}," +
+                            $"{Globe.Camera.EffectiveCenterLongitude:0.####}");
+            }, TimeSpan.FromSeconds(3.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.ZoomToLevel(6d);
+                Program.Log($"[VIEW] flat zoom-out level={Globe.GetZoomLevel():0.000} " +
+                            $"requested={Globe.CenterLatitude:0.####},{Globe.CenterLongitude:0.####} " +
+                            $"effective={Globe.Camera.EffectiveCenterLatitude:0.####}," +
+                            $"{Globe.Camera.EffectiveCenterLongitude:0.####}");
+            }, TimeSpan.FromSeconds(4.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.ZoomToLevel(10d);
+                Program.Log($"[VIEW] flat zoom-in level={Globe.GetZoomLevel():0.000} " +
+                            $"requested={Globe.CenterLatitude:0.####},{Globe.CenterLongitude:0.####} " +
+                            $"effective={Globe.Camera.EffectiveCenterLatitude:0.####}," +
+                            $"{Globe.Camera.EffectiveCenterLongitude:0.####}");
+            }, TimeSpan.FromSeconds(5.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                var before = Globe.GetZoomLevel();
+                Globe.SetFlatMode(false);
+                Program.Log($"[VIEW] flat off level {before:0.000}->{Globe.GetZoomLevel():0.000} " +
+                            $"alt={Globe.Altitude / 1000d:0}km");
+            }, TimeSpan.FromSeconds(6.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.Pitch = 50d;
+                var hit = Globe.Camera.ScreenToGround(Globe.Bounds.Width / 2d, Globe.Bounds.Height / 2d,
+                    Globe.Bounds.Width, Globe.Bounds.Height, out var point);
+                Program.Log($"[VIEW] pitch high-alt input=50 effective={Globe.GetEffectivePitch():0.00} " +
+                            $"center={hit} {point}");
+            }, TimeSpan.FromSeconds(7.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.JumpTo(0d, 0d, 10_000d);
+                Globe.Pitch = 60d;
+                var hit = Globe.Camera.ScreenToGround(Globe.Bounds.Width / 2d, Globe.Bounds.Height / 2d,
+                    Globe.Bounds.Width, Globe.Bounds.Height, out var point);
+                Program.Log($"[VIEW] pitch input=60 effective={Globe.GetEffectivePitch():0.00} " +
+                            $"center={hit} {point}");
+            }, TimeSpan.FromSeconds(8));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.Pitch = 88d;
+                var hit = Globe.Camera.ScreenToGround(Globe.Bounds.Width / 2d, Globe.Bounds.Height / 2d,
+                    Globe.Bounds.Width, Globe.Bounds.Height, out var point);
+                Program.Log($"[VIEW] pitch input=88 effective={Globe.GetEffectivePitch():0.00} " +
+                            $"center={hit} {point}");
+            }, TimeSpan.FromSeconds(9.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.JumpTo(0d, 0d, 9_500_000d);
+                Globe.Pitch = 88d;
+                var hit = Globe.Camera.ScreenToGround(Globe.Bounds.Width / 2d, Globe.Bounds.Height / 2d,
+                    Globe.Bounds.Width, Globe.Bounds.Height, out var point);
+                Program.Log($"[VIEW] pitch orbit-88 effective={Globe.GetEffectivePitch():0.00} " +
+                            $"center={hit} {point}");
+            }, TimeSpan.FromSeconds(10.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.SetFlatMode(true);
+                Globe.SetView(0d, 179d, 10d);
+                Globe.AutoRotate = true;
+            }, TimeSpan.FromSeconds(11.5));
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.AutoRotate = false;
+                Program.Log($"[VIEW] flat auto-rotate requested={Globe.CenterLongitude:0.####} " +
+                            $"effective={Globe.EffectiveCenterLongitude:0.####} flat={Globe.IsFlatMode}");
+            }, TimeSpan.FromSeconds(13.5));
         }
         else if (args.Contains("--geodesy-test"))
         {
@@ -1056,7 +1170,7 @@ public partial class MainWindow : Window
             var level = Globe.GetZoomLevel();
             var levelText = double.IsFinite(level) ? level.ToString("0.0") : "-";
             statusText.Text =
-                $"纬度 {Globe.CenterLatitude:0.00}°  经度 {Globe.CenterLongitude:0.00}°  " +
+                $"纬度 {Globe.EffectiveCenterLatitude:0.00}°  经度 {Globe.EffectiveCenterLongitude:0.00}°  " +
                 $"高度 {Globe.Altitude / 1000d:N0} km  层级 {lod}  缩放 {levelText}  " +
                 $"绘制瓦片 {tiles}  纹理 {textures}  失败 {failed}  " +
                 $"底图 {_activeBasemapName}";
@@ -1070,7 +1184,8 @@ public partial class MainWindow : Window
                 {
                     lastHistogram = detail;
                     Program.Log($"[LOD] {detail} 选瓦片 {selectionMs:0.00} ms " +
-                                 $"@{Globe.CenterLatitude:0.0},{Globe.CenterLongitude:0.0} alt={Globe.Altitude / 1000d:0}km");
+                                 $"@{Globe.EffectiveCenterLatitude:0.0},{Globe.EffectiveCenterLongitude:0.0} " +
+                                 $"alt={Globe.Altitude / 1000d:0}km");
                 }
             }
         });

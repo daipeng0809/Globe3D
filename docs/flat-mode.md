@@ -15,13 +15,25 @@ XAML:
 Code:
 
 ```csharp
-globe.IsFlatMode = true;    // 2D Web Mercator plane
-globe.IsFlatMode = false;   // back to the 3D globe
+globe.IsFlatMode = true;    // 2D Web Mercator plane, keeps the current zoom level
+globe.IsFlatMode = false;   // back to the 3D globe, keeps the current zoom level
+
+globe.SetFlatMode(true);                          // same as above
+globe.SetFlatMode(true, preserveZoomLevel: false); // keep Altitude instead of the level
 ```
 
 `IsFlatMode` defaults to `false`. The switch is a normal `StyledProperty`, so it can be bound,
-animated in code, or toggled from a toolbar button. The sample exposes a **平面模式 / 三维模式**
-button and the `--flat`, `--flat-toggle-test` and `--orientation-test` command-line switches.
+animated in code, or toggled from a toolbar button. Assigning the property (and the default
+`SetFlatMode` call) preserves the **displayed zoom level**: the level is read in the old projection
+and the camera altitude is recomputed in the new one. If the level cannot be measured because the
+control is not laid out yet, the projection is switched with the current altitude. If the level is
+measurable but the GL surface has not measured its physical pixel size yet, the level is stored and
+applied after the first rendered frame. Switching cancels any running flight/inertia animation and
+applies the new projection at the current centre.
+
+Pass `preserveZoomLevel: false` to restore the old behaviour of keeping `Altitude` unchanged.
+The sample exposes a **平面模式 / 三维模式** button and the `--flat`, `--flat-toggle-test`,
+`--orientation-test` and `--view-api-test` command-line switches.
 
 ## Interaction
 
@@ -43,8 +55,14 @@ Flat mode is a north-up orthographic Web Mercator view. `Heading` (map rotation)
 (tilt) only affect the 3D globe: the flat projection does not rotate or tilt, even when both
 properties are non-zero.
 
+In 3D, `Pitch` is a **true view pitch**: the angle between the line of sight and the surface normal
+at the centre point (0 = straight down, larger = closer to horizontal, clamped to 88). The camera
+solves the orbital offset for the current altitude, so at low altitude a large pitch no longer puts
+the centre point behind the globe; the offset converges towards the horizon. `GetEffectivePitch()`
+returns the actual angle of the current camera (0 in flat mode).
+
 The sample's `--orientation-test` sets `Heading = 60°` and `Pitch = 50°` in flat mode and then
-switches back to 3D. The screenshot below shows the same view with those values:
+switches back to 3D. The screenshot below illustrates the contrast with those values configured:
 
 - **Left — 3D**: the globe is rotated and tilted by the values.
 - **Right — flat (2D)**: the map remains north-up and untilted.
@@ -72,8 +90,12 @@ projection and would require a separate implementation.
 ## API
 
 ```csharp
-// Toggle the mode
+// Toggle the mode (preserves the zoom level by default)
 globe.IsFlatMode = true;
+globe.SetFlatMode(false, preserveZoomLevel: true);
+
+// Atomic centre + level: one conversion against the final physical-pixel viewport
+globe.SetView(31.23, 121.47, 12);              // same as JumpToLevel
 
 // The underlying camera exposes the flat projection state and helpers
 var camera = globe.Camera;
@@ -85,6 +107,14 @@ if (camera.TryGetFlatViewportBounds(out var west, out var east, out var south, o
     // visible geographic rectangle
 }
 ```
+
+In flat mode the viewport clamps the projection centre to keep the map filling the control. This
+clamp does **not** write back `CenterLatitude` / `CenterLongitude`: the properties keep the centre
+requested by the application, so zooming out and back in returns to it. The clamp result is only
+written back by user interactions (drag, wheel zoom, auto rotation) via `PanFlatByPixels` /
+`SetFlatCenter`.
+`GlobeView.EffectiveCenterLatitude` / `EffectiveCenterLongitude` (also on `OrbitCamera`) report the
+centre actually drawn, which may differ near the map edge; the sample status bar uses these values.
 
 `GetPerformanceSnapshot()` and the performance HUD continue to work in flat mode; frame timing,
 tile LOD, loader queue and tile I/O are measured in the same way. The altitude row still reports
@@ -108,6 +138,12 @@ the camera altitude, which now controls the flat zoom.
   side of the map at deep zoom or at the antimeridian.
 - Flat regions are unwrapped in geographic space and clipped to [-180, 180]; the clipping can
   produce one polygon per side of the map, and each part is filled and stroked separately.
+- Switching between 3D and flat mode reuses `ZoomToLevel`'s conversion: the displayed level is kept
+  rather than the raw altitude, because the 3D level includes `cos(centre latitude)` while the flat
+  level does not. Extreme latitudes may hit `MinAltitude` / `MaxAltitude`, in which case the closest
+  reachable level is used. Running flight/inertia animations are cancelled by the switch.
+- Auto rotation and drag inertia are clamped to the flat map bounds, so the requested centre does not
+  keep moving past ±180° and jump when the view is zoomed out later.
 
 ## Demo
 
@@ -115,11 +151,14 @@ the camera altitude, which now controls the flat zoom.
 dotnet run --project samples/Globe3D.Demo -- --flat
 dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test
 dotnet run --project samples/Globe3D.Demo -- --orientation-test
+dotnet run --project samples/Globe3D.Demo -- --view-api-test
 ```
 
 `--flat` starts directly in 2D mode. `--flat-toggle-test` enables 2D, pans the map, switches back
 to 3D and writes the results to `demo.log`. `--orientation-test` sets Heading/Pitch in flat mode,
 logs that the flat view remains north-up, switches to 3D and logs the retained values.
+`--view-api-test` checks level-preserving mode switches, atomic `SetView`, centre preservation while
+zooming out/in in flat mode, and low/high-altitude pitch (`[VIEW]` lines).
 
 ## Compatibility and limitations
 

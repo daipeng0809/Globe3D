@@ -1,4 +1,4 @@
-![Globe3D.Avalonia icon](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/assets/globe3d-icon-128.png)
+![Globe3D.Avalonia icon](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/assets/globe3d-icon-128.png)
 
 # Globe3D.Avalonia
 
@@ -14,7 +14,7 @@ A real-time 3D globe control for Avalonia 12. It renders imagery tiles, a proced
 atmospheric scattering with OpenGL ES 3.0, and overlays 3D markers (PNG/JPG/GIF/SVG icons), region
 polygons and text labels. The same control can switch to a flat 2D Web Mercator map at runtime.
 
-![Preview](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/screenshot.png)
+![Preview](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/docs/screenshot.png)
 
 ## Table of contents
 
@@ -53,7 +53,7 @@ polygons and text labels. The same control can switch to a flat 2D Web Mercator 
 | Imagery tiles | Web Mercator XYZ pyramid mapped directly from Mercator parameters to the sphere, without seams |
 | Adaptive LOD | Quadtree chooses a zoom per tile from camera distance, grazing angle and projected screen size; near view and horizon use finer levels in the same frame |
 | Flat mode | `IsFlatMode` switches between the 3D globe and a north-up 2D Web Mercator map; pan, zoom, markers, regions, labels and hit testing are reused |
-| Zoom levels | `GetZoomLevel` / `ZoomToLevel` map tile levels to camera altitude, with min/max level limits and an on-screen badge |
+| Zoom levels | `GetZoomLevel` / `ZoomToLevel` / `SetView` map tile levels to camera altitude, with atomic centre changes, min/max level limits and an on-screen badge |
 | Data sources | MBTiles (offline SQLite), generic HTTP URL templates with disk cache, and composite sources |
 | Coordinate systems | Source datum reporting, heuristic detection, and WGS84 / Web Mercator / GCJ-02 / BD-09 conversion |
 | Sparse fallback | Missing tiles fall back along the ancestor chain, so gaps do not become black holes |
@@ -82,6 +82,10 @@ polygons and text labels. The same control can switch to a flat 2D Web Mercator 
 | Threading | Control and overlay rendering on the UI thread; tile download/decode on worker threads; icon decoding is thread-safe |
 | AOT | `IsAotCompatible=true`; IL2026/IL2067/IL3050 are build errors. The sample enables `PublishAot` |
 
+> Version 3.0.0 is a breaking release: `Pitch` now means the true view pitch at the centre point
+> (old values were orbital angles), and `IsFlatMode` keeps the displayed zoom level by default.
+> Use `SetFlatMode(true, preserveZoomLevel: false)` for the old altitude behaviour.
+>
 > Version 2.0.0 is a breaking release: `OnlineMapProvider` and the provider-specific
 > `OnlineTileSources` methods were removed. Use the generic `OnlineTileSources.Create(urlTemplate, ...)`
 > or `new HttpTileSource(...)`.
@@ -89,13 +93,13 @@ polygons and text labels. The same control can switch to a flat 2D Web Mercator 
 ## Installation
 
 ```bash
-dotnet add package Globe3D.Avalonia --version 2.1.0
+dotnet add package Globe3D.Avalonia --version 3.0.0
 ```
 
 Or in a project file:
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.1.0" />
+<PackageReference Include="Globe3D.Avalonia" Version="3.0.0" />
 ```
 
 XAML namespace:
@@ -295,14 +299,19 @@ IImage svg = MarkerImage.FromSvg("<svg viewBox='0 0 24 24'>...</svg>");
 ### Camera control
 
 ```csharp
-globe.JumpTo(31.23, 121.47, 1_200_000);                 // immediate
+globe.JumpTo(31.23, 121.47, 1_200_000);                 // immediate (altitude)
 globe.FlyTo(31.23, 121.47, 260_000,
-    TimeSpan.FromMilliseconds(1200));                   // smooth flight
+    TimeSpan.FromMilliseconds(1200));                   // smooth flight (altitude)
+globe.SetView(31.23, 121.47, 12);                       // atomic centre + zoom level
+globe.JumpToLevel(31.23, 121.47, 12);                   // alias for SetView
 
 globe.CenterLatitude = 33;
-globe.CenterLongitude = 108;
+globe.CenterLongitude = 108;                              // requested centre (flat mode may clamp)
 globe.Altitude = 9_500_000;                              // metres above ground
-globe.Pitch = 25;                                        // 0-88 degrees
+globe.Pitch = 25;                                        // true view pitch, 0-88°
+double effectivePitch = globe.GetEffectivePitch();       // actual view pitch (0 in flat mode)
+double actualLat = globe.EffectiveCenterLatitude;        // actual drawn centre (may differ at map edge)
+double actualLon = globe.EffectiveCenterLongitude;
 ```
 
 ### Zoom levels
@@ -322,6 +331,12 @@ globe.ZoomLevelPlacement = GlobeScaleBarPlacement.BottomRight;
 
 - In 3D the altitude is solved iteratively for the current pitch, centre latitude and physical pixel
   height, so the requested level matches the displayed level; flat mode uses an analytic inverse.
+  `Pitch` is a true view pitch measured at the centre point: 0 looks straight down and larger values
+  approach horizontal; the orbital offset is solved for the current altitude so the centre stays in
+  front of the globe.
+- `SetView(latitude, longitude, level)` (alias `JumpToLevel`) sets the centre and level atomically.
+  The altitude is solved once for the target centre and the physical-pixel viewport, avoiding the
+  "set centre first, level later" intermediate clamp; it also works before layout.
 - `MinZoomLevel` / `MaxZoomLevel` work together with `MinAltitude` / `MaxAltitude`; the stricter limit
   wins. `JumpTo`, `FlyTo` and direct `Altitude` assignments are altitude APIs and are not clamped by
   the level limits.
@@ -384,21 +399,27 @@ for the formulas, idle behaviour and limitations.
 ### Flat (2D) mode
 
 ```csharp
-globe.IsFlatMode = true;   // flat Web Mercator map
-globe.IsFlatMode = false;  // 3D globe
+globe.IsFlatMode = true;   // flat Web Mercator map, keeps the zoom level
+globe.IsFlatMode = false;  // 3D globe, keeps the zoom level
+globe.SetFlatMode(true);   // equivalent; pass preserveZoomLevel: false to keep Altitude
 ```
 
 In flat mode:
 
 - Left drag pans, wheel zooms (reusing `Altitude`), double-click flies closer; right-drag tilt is disabled.
 - Star field, atmosphere and surface lighting are not rendered; marker altitude leader lines are hidden.
-- The map is north-up and untilted. `Heading` / `Pitch` are retained but do not apply to the flat
-  projection; switching back to 3D restores the orientation.
-- The map is bounded to ±180° / ±85.05°; it does not wrap horizontally.
+- The map remains north-up; `Pitch` / `Heading` are retained but do not apply. Switching projection
+  keeps the displayed zoom level by default and cancels any running flight/inertia animation.
+- The map is bounded to ±180° / ±85.05°; it does not wrap horizontally. The viewport clamp does not
+  write back `CenterLatitude` / `CenterLongitude` (only user interactions such as drag, wheel zoom
+  and auto rotation write the clamped centre back), so the requested centre is recovered after
+  zooming out and back in. Read the actual
+  drawn centre from `EffectiveCenterLatitude` / `EffectiveCenterLongitude`; the sample status bar
+  uses them. Auto rotation and inertia stop at the flat map bounds.
 - Regions crossing the antimeridian are split into two parts.
 - The same tile LOD, markers, regions, labels, hover, click and `FindNearestMarker` APIs are used.
 
-![3D vs flat with Heading/Pitch](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/flat-mode-heading-pitch.png)
+![3D vs flat with Heading/Pitch](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/docs/flat-mode-heading-pitch.png)
 
 See [docs/flat-mode.md](https://github.com/daipeng0809/Globe3D/blob/master/docs/flat-mode.md) for details and implementation notes.
 
@@ -505,7 +526,7 @@ globe.TileSource = new CompositeTileSource(
 | `CenterLatitude` | double | 32 | Centre latitude |
 | `CenterLongitude` | double | 108 | Centre longitude |
 | `Altitude` | double | 10 200 000 | Camera altitude in metres |
-| `Pitch` | double | 0 | Tilt, 0-88 (3D only) |
+| `Pitch` | double | 0 | View pitch, 0-88° (3D only; retained in flat mode) |
 | `Heading` | double | 0 | Heading (3D only) |
 | `MinAltitude` / `MaxAltitude` | double | 10 000 / 51 000 000 | Zoom limits |
 | `MbTilesPath` | string? | null | MBTiles path; creates a source automatically |
@@ -617,6 +638,7 @@ dotnet run --project samples/Globe3D.Demo -- --orientation-test
 dotnet run --project samples/Globe3D.Demo -- --coordinate-test
 dotnet run --project samples/Globe3D.Demo -- --vector-test
 dotnet run --project samples/Globe3D.Demo -- --zoom-level-test
+dotnet run --project samples/Globe3D.Demo -- --view-api-test
 dotnet run --project samples/Globe3D.Demo -- --geodesy-test
 dotnet run --project samples/Globe3D.Demo -- --vector-seam-test
 ```
@@ -643,7 +665,7 @@ toolchain. See [docs/native-aot.md](https://github.com/daipeng0809/Globe3D/blob/
 ```bash
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.1.0.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.3.0.0.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 

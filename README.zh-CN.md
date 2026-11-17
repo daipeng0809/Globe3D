@@ -1,4 +1,4 @@
-![Globe3D.Avalonia 图标](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/assets/globe3d-icon-128.png)
+![Globe3D.Avalonia 图标](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/assets/globe3d-icon-128.png)
 
 # Globe3D.Avalonia
 
@@ -14,7 +14,7 @@
 并在其上叠加三维标记点（支持 png/jpg/gif/svg 图标）、区域多边形与文字标注，
 内置瓦片分层 LOD 与完整的鼠标交互。
 
-![预览](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/screenshot.png)
+![预览](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/docs/screenshot.png)
 
 ## 目录
 
@@ -62,7 +62,7 @@
 | 交互 | 左键旋转、右键倾斜、滚轮缩放、双击飞行、标记/地表拾取                                                          |
 | 渲染调度 | 按需渲染，静止时 CPU/GPU 占用归零                                                                              |
 | 平面模式 | `IsFlatMode` 在三维地球与二维 Web 墨卡托平面间切换，支持平移/缩放、瓦片 LOD、标记/区域/标注                    |
-| 缩放级别 | `GetZoomLevel` / `ZoomToLevel` 按瓦片层级自动换算镜头高度，支持最小/最大级别限制与屏幕显示                         |
+| 缩放级别 | `GetZoomLevel` / `ZoomToLevel` / `SetView` 按瓦片层级自动换算镜头高度，支持中心+级别原子定位、最小/最大级别限制与屏幕显示 |
 | 性能面板 | 一键开启的性能 HUD：0-100 流畅度评分、帧率/刷新率/帧耗时、瓦片与加载队列、MBTiles/磁盘缓存与网络的实时读取速度 |
 
 ## 环境与兼容性
@@ -76,16 +76,20 @@
 | 线程模型 | 控件与叠加层绘制在 UI 线程，瓦片下载/解码在后台线程；图标解码可跨线程调用 |
 | Native AOT | 库开启 AOT/裁剪分析（`IsAotCompatible`，零告警）；示例以 Native AOT 发布并验证通过，见 [Native AOT 与裁剪](#native-aot-与裁剪) |
 
+> **3.0.0 为破坏性更新**：`Pitch` 改为中心点处的真实视线俯仰角（旧值是轨道偏移角），
+> `IsFlatMode` 默认保持显示级别。需要旧的“保持 Altitude”行为时使用
+> `SetFlatMode(true, preserveZoomLevel: false)`。
+
 ## 安装
 
 ```bash
-dotnet add package Globe3D.Avalonia
+dotnet add package Globe3D.Avalonia --version 3.0.0
 ```
 
 或直接在工程中引用：
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="2.1.0" />
+<PackageReference Include="Globe3D.Avalonia" Version="3.0.0" />
 ```
 
 XAML 命名空间：
@@ -291,14 +295,19 @@ IImage svg = MarkerImage.FromSvg("<svg viewBox='0 0 24 24'>...</svg>");
 ### 相机控制
 
 ```csharp
-globe.JumpTo(31.23, 121.47, 1_200_000);            // 立即定位
+globe.JumpTo(31.23, 121.47, 1_200_000);            // 立即定位（按高度）
 globe.FlyTo(31.23, 121.47, 260_000,
-    TimeSpan.FromMilliseconds(1200));               // 平滑飞行
+    TimeSpan.FromMilliseconds(1200));               // 平滑飞行（按高度）
+globe.SetView(31.23, 121.47, 12);                   // 原子设置中心 + 缩放级别
+globe.JumpToLevel(31.23, 121.47, 12);               // SetView 的别名
 
 globe.CenterLatitude = 33;                          // 也可直接设属性
-globe.CenterLongitude = 108;
+globe.CenterLongitude = 108;                        // 请求中心（平面模式可被视口夹取）
 globe.Altitude = 9_500_000;                         // 离地高度（米）
-globe.Pitch = 25;                                   // 俯仰 0-88 度
+globe.Pitch = 25;                                   // 视线俯仰角 0-88 度
+double effectivePitch = globe.GetEffectivePitch();  // 实际视线俯仰角（平面模式为 0）
+double actualLat = globe.EffectiveCenterLatitude;   // 实际绘制中心（平面边缘可能不同）
+double actualLon = globe.EffectiveCenterLongitude;
 ```
 
 ### 缩放级别
@@ -317,7 +326,10 @@ globe.ZoomLevelPlacement = GlobeScaleBarPlacement.BottomRight;
 ```
 
 - 三维模式按当前俯仰角、中心纬度与视口物理像素高度迭代求解镜头高度，使设定级别与实际显示级别一致；
-  平面模式为解析换算。
+  平面模式为解析换算。`Pitch` 是在中心点处量取的真实视线俯仰角：0 垂直向下、越大越接近水平，
+  相机按当前高度反解轨道偏移，低空时中心点仍在地平线以内。
+- `SetView(纬度, 经度, 级别)`（别名 `JumpToLevel`）原子设置中心与级别：按目标中心、当前俯仰角
+  与物理像素视口一次性求解高度，避免“先设中心、后设级别”被中间状态夹取；布局前调用会一并暂存。
 - `MinZoomLevel` / `MaxZoomLevel` 与 `MinAltitude` / `MaxAltitude` 同时生效，更严格者优先；
   直接设置 `Altitude` / `JumpTo` / `FlyTo` 仍只受高度限制。
 - `ZoomLevel` 是实时计算值，不参与 Avalonia 属性变更通知；实时显示用 `ShowZoomLevel`，监听变化用 `CameraChanged`。
@@ -381,8 +393,9 @@ Console.WriteLine($"{stats.FramesPerSecond:0.0} fps, score {stats.SmoothnessScor
 ### 平面模式
 
 ```csharp
-globe.IsFlatMode = true;   // 二维 Web 墨卡托平面
-globe.IsFlatMode = false;  // 恢复三维地球
+globe.IsFlatMode = true;   // 二维 Web 墨卡托平面（保持当前缩放级别）
+globe.IsFlatMode = false;  // 恢复三维地球（保持当前缩放级别）
+globe.SetFlatMode(true);   // 等价写法；传 preserveZoomLevel: false 则保持 Altitude 不变
 ```
 
 平面模式复用同一套瓦片/LOD/图层能力：
@@ -390,10 +403,14 @@ globe.IsFlatMode = false;  // 恢复三维地球
 - 左键拖动平移地图，滚轮缩放（复用 `Altitude`），双击飞近；右键拖拽倾斜不生效
 - 不绘制星空、大气与地表光照，标记高度引线隐藏，标记按经纬度落在平面上
 - 区域跨 ±180° 经线时会拆到地图左右两侧；地图在 ±180° 边缘停止，不做横向循环滚动
+- 投影切换默认保持显示级别，并取消进行中的飞行/惯性动画；
+  平面视口的中心夹取只影响实际投影，不回写 `CenterLatitude` / `CenterLongitude`（夹取结果仅在用户拖拽/滚轮缩放/自动旋转后回写）；
+  缩出去再缩回来仍能回到调用方请求的中心，实际绘制中心用 `EffectiveCenterLatitude/Longitude` 读取；
+  状态栏示例已改用实际绘制中心。自动旋转与惯性同样在平面边界停止
 - `Pitch` / `Heading` 在平面模式下不参与投影：地图保持正北向上、不做旋转/倾斜；两者数值保留，切回三维后生效
 - 英文说明与 3D/平面同角度对比截图见 [docs/flat-mode.md](docs/flat-mode.md)
 
-![3D/平面模式 Heading/Pitch 对比](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v2.1.0/docs/flat-mode-heading-pitch.png)
+![3D/平面模式 Heading/Pitch 对比](https://cdn.jsdelivr.net/gh/daipeng0809/Globe3D@v3.0.0/docs/flat-mode-heading-pitch.png)
 
 ## 数据源
 
@@ -494,7 +511,7 @@ globe.TileSource = new CompositeTileSource(
 | `CenterLatitude` | double | 32 | 观察中心纬度 |
 | `CenterLongitude` | double | 108 | 观察中心经度 |
 | `Altitude` | double | 10 200 000 | 相机离地高度（米） |
-| `Pitch` | double | 0 | 俯仰角，0-88 |
+| `Pitch` | double | 0 | 视线俯仰角，0-88 度（仅三维；平面模式保留数值） |
 | `Heading` | double | 0 | 航向角 |
 | `MinAltitude` / `MaxAltitude` | double | 10 000 / 51 000 000 | 缩放上下限 |
 | `MbTilesPath` | string? | null | MBTiles 路径，自动创建数据源 |
@@ -620,6 +637,7 @@ dotnet run --project samples/Globe3D.Demo -- --orientation-test       # 平面�
 dotnet run --project samples/Globe3D.Demo -- --coordinate-test        # 坐标系检测与 GCJ/BD/墨卡托转换回归
 dotnet run --project samples/Globe3D.Demo -- --vector-test            # 矢量图形/测量/比例尺与图层显隐回归
 dotnet run --project samples/Globe3D.Demo -- --zoom-level-test        # 缩放级别换算、上下限与平面模式回归
+dotnet run --project samples/Globe3D.Demo -- --view-api-test          # 切换保级、SetView、中心不回写与低空/高空俯仰回归
 dotnet run --project samples/Globe3D.Demo -- --geodesy-test           # 测地线距离/面积与极区多边形回归
 dotnet run --project samples/Globe3D.Demo -- --vector-seam-test       # 平面模式跨 ±180° 折线/多边形回归
 ```
@@ -671,7 +689,7 @@ PNG/JPG/GIF/SVG 图标、区域与标注、标记悬停与命中回归、性能�
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
 # 发布到 nuget.org（需要先配置 API Key）
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.2.1.0.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.3.0.0.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 

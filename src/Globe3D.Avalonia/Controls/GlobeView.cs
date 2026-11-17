@@ -96,6 +96,7 @@ public partial class GlobeView : Panel
     private GlobeMarker? _hoverMarker;
     private Cursor? _baseCursor;
     private bool _hoverCursorApplied;
+    private bool _preserveZoomOnFlatModeChange = true;
 
     private static readonly Cursor HandCursor = new(StandardCursorType.Hand);
 
@@ -141,7 +142,10 @@ public partial class GlobeView : Panel
     public static readonly StyledProperty<double> AltitudeProperty =
         AvaloniaProperty.Register<GlobeView, double>(nameof(Altitude), 10_200_000d);
 
-    /// <summary>俯仰角（度）。0 为正俯视，最大约 88。</summary>
+    /// <summary>
+    /// 视线俯仰角（度）：视线与中心地表法线的夹角，0 为正俯视、最大约 88。
+    /// 相机会按当前高度反解轨道偏移，低空时不会把中心点转到球体背面；平面模式下不生效。
+    /// </summary>
     public static readonly StyledProperty<double> PitchProperty =
         AvaloniaProperty.Register<GlobeView, double>(nameof(Pitch));
 
@@ -242,12 +246,30 @@ public partial class GlobeView : Panel
         set => SetValue(CenterLongitudeProperty, value);
     }
 
+    /// <summary>
+    /// 实际绘制中心的纬度（度）。平面模式返回视口夹取后的中心，可能与请求的
+    /// <see cref="CenterLatitude"/> 不同；三维模式与 <see cref="CenterLatitude"/> 相同。
+    /// 这是实时计算值，不参与 Avalonia 属性变更通知。
+    /// </summary>
+    public double EffectiveCenterLatitude => _camera.EffectiveCenterLatitude;
+
+    /// <summary>
+    /// 实际绘制中心的经度（度）。平面模式返回视口夹取后的中心，可能与请求的
+    /// <see cref="CenterLongitude"/> 不同；三维模式与 <see cref="CenterLongitude"/> 相同。
+    /// 这是实时计算值，不参与 Avalonia 属性变更通知。
+    /// </summary>
+    public double EffectiveCenterLongitude => _camera.EffectiveCenterLongitude;
+
     public double Altitude
     {
         get => GetValue(AltitudeProperty);
         set => SetValue(AltitudeProperty, value);
     }
 
+    /// <summary>
+    /// 视线俯仰角（度）：0 为正俯视，最大约 88。相机会按当前高度反解轨道偏移，
+    /// 低空时自动收敛到地平线以内；平面模式下不生效。实际值可用 <see cref="GetEffectivePitch"/> 读取。
+    /// </summary>
     public double Pitch
     {
         get => GetValue(PitchProperty);
@@ -330,6 +352,12 @@ public partial class GlobeView : Panel
     /// 是否使用二维平面模式：开启后地图以 Web 墨卡托平面展示（关闭星空/大气/倾斜），
     /// 关闭时恢复现有三维地球展示。
     /// </summary>
+    /// <remarks>
+    /// 直接赋值会在切换时保持当前缩放级别（按新投影重新换算高度）；
+    /// 需要放弃该行为时使用 <see cref="SetFlatMode"/> 并传入 <c>preserveZoomLevel: false</c>。
+    /// 控件尚未完成布局时无法计算级别，此时仅切换投影并使用当前高度；若级别可测但 GL 首帧
+    /// 尚未就绪，则暂存到首帧后按新投影应用。切换会取消进行中的飞行/惯性动画。
+    /// </remarks>
     public bool IsFlatMode
     {
         get => GetValue(IsFlatModeProperty);
@@ -438,9 +466,14 @@ public partial class GlobeView : Panel
             change.Property == HeadingProperty || change.Property == MinAltitudeProperty ||
             change.Property == MaxAltitudeProperty)
         {
-            // 用户直接设置高度时，取消布局前暂存的缩放级别请求
-            if (change.Property == AltitudeProperty)
-                _pendingZoomLevel = null;
+            // 用户直接设置高度，或显式改中心时，取消布局前暂存的视口请求；
+            // 仅缩放级别的暂存保留，等视口稳定后按当前中心应用
+            if (change.Property == AltitudeProperty ||
+                ((change.Property == CenterLatitudeProperty || change.Property == CenterLongitudeProperty) &&
+                 double.IsFinite(_pendingZoomLatitude)))
+            {
+                ClearPendingZoom();
+            }
 
             ApplyCameraProperties();
             Refresh();
@@ -482,12 +515,7 @@ public partial class GlobeView : Panel
         }
         else if (change.Property == IsFlatModeProperty)
         {
-            _camera.IsFlat = IsFlatMode;
-            _camera.Normalize();
-
-            // 模式切换后旧的屏幕命中/悬停结果不再有效，清掉悬停并在下一帧重建
-            UpdateHoverMarker(null);
-            InvalidateAll();
+            ApplyFlatMode(IsFlatMode);
         }
         else if (change.Property == AutoRotateProperty || change.Property == AutoRotateSpeedProperty)
         {
@@ -548,17 +576,58 @@ public partial class GlobeView : Panel
     private void UpdateCameraAspect()
     {
         var aspect = Bounds.Height > 0 ? Bounds.Width / Bounds.Height : 1d;
-        var camera = _camera;
-        camera.Update(aspect);
+        _camera.Update(aspect);
 
-        // 平面模式会按视口/缩放把中心限制在地图范围内，把限制后的结果同步回属性，
-        // 避免状态栏或绑定仍显示限制前的经纬度
-        if (camera.IsFlat &&
-            (Math.Abs(camera.CenterLatitude - CenterLatitude) > 1e-9d ||
-             Math.Abs(MathUtil.NormalizeLongitudeDelta(camera.CenterLongitude - CenterLongitude)) > 1e-9d))
+        // 平面视口的中心夹取只作用于投影（FlatCenterX/Y），不回写 CenterLatitude/CenterLongitude。
+        // 属性保留调用方请求的目标中心，拖拽/缩放后的实际中心由输入层经 SyncPropertiesFromCamera 回写。
+    }
+
+    /// <summary>
+    /// 切换二维/三维投影。默认保持当前缩放级别：先在旧投影下取 <see cref="GetZoomLevel"/>，
+    /// 切换后按新投影重新换算相机高度；无法计算级别（尚未布局）时沿用当前高度。
+    /// </summary>
+    private void ApplyFlatMode(bool isFlat)
+    {
+        if (_camera.IsFlat == isFlat)
+            return;
+
+        var level = _preserveZoomOnFlatModeChange ? GetZoomLevel() : double.NaN;
+
+        // 投影切换后旧的飞行轨迹/惯性速度不再适用，统一取消，避免在两种投影间插值
+        _flight = null;
+        _inertiaActive = false;
+        _inertiaLongitudeSpeed = 0d;
+        _inertiaLatitudeSpeed = 0d;
+
+        _camera.IsFlat = isFlat;
+        _camera.Normalize();
+
+        // 模式切换后旧的屏幕命中/悬停结果不再有效，清掉悬停并在下一帧重建
+        UpdateHoverMarker(null);
+
+        if (double.IsFinite(level))
         {
-            SyncPropertiesFromCamera();
+            if (HasUsableViewport)
+            {
+                ApplyZoomLevel(ClampZoomLevel(level), null);
+            }
+            else
+            {
+                // 布局已完成但 GL 首帧未就绪：暂存级别到首帧后按新投影换算；
+                // 若此前还有待应用的 SetView 中心，一并保留
+                var pendingLatitude = _pendingZoomLatitude;
+                var pendingLongitude = _pendingZoomLongitude;
+                var pendingDuration = _pendingZoomDuration;
+                ClearPendingZoom();
+                _pendingZoomLevel = ClampZoomLevel(level);
+                _pendingZoomDuration = pendingDuration;
+                _pendingZoomLatitude = pendingLatitude;
+                _pendingZoomLongitude = pendingLongitude;
+            }
         }
+
+        StopTickerIfIdle();
+        InvalidateAll();
     }
 
     /// <summary>把相机的当前状态写回控件属性（不触发反向同步）。</summary>
@@ -732,10 +801,10 @@ public partial class GlobeView : Panel
 
     #region 公开方法
 
-    /// <summary>立即把视角定位到指定经纬度与高度。</summary>
+    /// <summary>立即把视角定位到指定经纬度与高度。中心与高度在同一次相机更新中生效。</summary>
     public void JumpTo(double latitude, double longitude, double altitudeMeters)
     {
-        _pendingZoomLevel = null;
+        ClearPendingZoom();
 
         _syncing = true;
         try
@@ -754,10 +823,35 @@ public partial class GlobeView : Panel
         Refresh();
     }
 
+    /// <summary>
+    /// 切换二维平面/三维地球，并可选择保持当前缩放级别。
+    /// </summary>
+    /// <param name="isFlat">true 切换到 Web 墨卡托平面，false 切换到三维地球。</param>
+    /// <param name="preserveZoomLevel">
+    /// true（默认）先在旧投影下取当前级别，切换后按新投影重新换算高度；
+    /// false 保持当前 <see cref="Altitude"/> 不变（旧行为）。
+    /// </param>
+    /// <remarks>切换会取消进行中的飞行/惯性动画，按当前中心应用新投影。</remarks>
+    public void SetFlatMode(bool isFlat, bool preserveZoomLevel = true)
+    {
+        _preserveZoomOnFlatModeChange = preserveZoomLevel;
+        try
+        {
+            if (IsFlatMode == isFlat)
+                ApplyFlatMode(isFlat);
+            else
+                IsFlatMode = isFlat;
+        }
+        finally
+        {
+            _preserveZoomOnFlatModeChange = true;
+        }
+    }
+
     /// <summary>平滑飞行到指定经纬度与高度。</summary>
     public void FlyTo(double latitude, double longitude, double altitudeMeters, TimeSpan? duration = null)
     {
-        _pendingZoomLevel = null;
+        ClearPendingZoom();
         StartFlight(latitude, longitude, altitudeMeters, duration ?? TimeSpan.FromMilliseconds(900));
     }
 
@@ -893,6 +987,12 @@ public partial class GlobeView : Panel
 
         _overlay.InvalidateVisual();
     }
+
+    /// <summary>
+    /// 当前视线相对中心地表法线的实际俯仰角（度）。0 为垂直向下，接近 90 为接近水平。
+    /// 平面模式返回 0。用于在低空/受限视角下核对 <see cref="Pitch"/> 的实际效果。
+    /// </summary>
+    public double GetEffectivePitch() => _camera.GetEffectivePitch();
 
     /// <summary>触发鼠标移动事件（由输入层调用）。</summary>
     internal void RaisePointerMoved(Point position)

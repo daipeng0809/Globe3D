@@ -3,6 +3,47 @@
 本文件格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.0.0] - 2026-11-17
+
+### 变更（破坏性）
+
+- `Pitch` 改为真正的视线俯仰角（0 垂直向下、越大越接近水平）：相机按当前高度反解轨道偏移，
+  低空输入自动收敛到地平线以内，不再出现中心点被转到球体背面或有效俯仰随高度反向变化。
+  仍按旧轨道角语义设置 `Pitch` 的应用需调整数值；可用 `GetEffectivePitch()` 核对实际视线角
+- `IsFlatMode` 赋值与新增的 `SetFlatMode(bool isFlat, bool preserveZoomLevel = true)` 默认在
+  二维/三维切换时保持当前缩放级别（切换后按新投影重算高度）；传入 `preserveZoomLevel: false`
+  可恢复保持 `Altitude` 不变的旧行为。切换会取消进行中的飞行/惯性动画
+
+### 新增
+
+- **原子视口**：`SetView(latitude, longitude, zoomLevel)`（别名 `JumpToLevel`）按目标中心、
+  当前俯仰角与物理像素视口一次性求解高度并同时应用中心/级别；布局前调用会一并暂存中心与级别，
+  避免“先设中心、后设级别”被中间高空状态夹取
+- **有效值查询**：`GlobeView.GetEffectivePitch()` / `OrbitCamera.GetEffectivePitch()` 返回视线相对
+  中心地表法线的实际俯仰角；`GlobeView.EffectiveCenterLatitude/Longitude`（及 `OrbitCamera` 同名
+  属性）返回平面模式视口夹取后实际绘制的中心
+- 示例新增 `--view-api-test` 回归参数（切换保级、`SetView`、中心不回写与低空/高空俯仰），
+  状态栏与 `[LOD]` 日志改用实际绘制中心
+
+### 修复
+
+- 平面模式 `UpdateFlat` 的视口中心夹取不再回写 `CenterLatitude` / `CenterLongitude`：
+  属性保留调用方请求的中心，缩出去再缩回来可回到目标位置；仅用户交互（拖拽/滚轮缩放/自动旋转）
+  后回写实际中心。该设计取代 1.1.1 中“把视口夹取结果回写控件属性”的做法，实际中心改用
+  `EffectiveCenterLatitude/Longitude` 读取
+- 平面模式自动旋转与惯性滑动按视口边界夹取中心，不再让请求中心滑出地图范围后产生跳变
+- 模式切换时若 GL 尚未出首帧但级别已可测，会暂存并在首帧后按新投影应用，不再静默退回保持高度
+
+### 文档
+
+- 中英文 README、[docs/flat-mode.md](docs/flat-mode.md)、[docs/zoom-level.md](docs/zoom-level.md)
+  补充 Pitch 新语义、保级切换、`SetView`/`JumpToLevel`、请求中心与实际绘制中心的区别，
+  图片链接固定到 `v3.0.0`
+
+### 变更
+
+- 版本号提升为 3.0.0：`Pitch` 语义与 `IsFlatMode` 默认行为变更，属于破坏性更新
+
 ## [2.1.0] - 2026-11-17
 
 ### 新增

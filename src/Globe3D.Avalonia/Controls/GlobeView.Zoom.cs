@@ -11,6 +11,8 @@ public partial class GlobeView
     private const double DefaultMaxZoomLevel = 24d;
     private double? _pendingZoomLevel;
     private TimeSpan? _pendingZoomDuration;
+    private double _pendingZoomLatitude = double.NaN;
+    private double _pendingZoomLongitude = double.NaN;
     private double _pendingZoomAppliedHeight = double.NaN;
     private bool _pendingZoomApplied;
 
@@ -110,33 +112,76 @@ public partial class GlobeView
             return;
 
         var clamped = ClampZoomLevel(level);
-        if (Bounds.Width <= 1d || Bounds.Height <= 1d || _surface.PixelHeight <= 1d)
+        if (!HasUsableViewport)
         {
             // 等 GL 首帧测出真实物理像素尺寸后再换算，避免按布局中间尺寸得到错误的镜头距离
+            ClearPendingZoom();
             _pendingZoomLevel = clamped;
             _pendingZoomDuration = duration;
-            _pendingZoomApplied = false;
-            _pendingZoomAppliedHeight = double.NaN;
             return;
         }
 
-        _pendingZoomLevel = null;
-        _pendingZoomDuration = null;
-        _pendingZoomApplied = false;
+        ClearPendingZoom();
         ApplyZoomLevel(clamped, duration);
     }
+
+    /// <summary>
+    /// 原子地把视角定位到指定经纬度与缩放级别：中心与高度按同一视口一次性换算并生效，
+    /// 不会出现“先设中心被中间高空视口夹取、再设级别”的问题。
+    /// </summary>
+    /// <param name="latitude">目标中心纬度（会收敛到 ±85.05°）。</param>
+    /// <param name="longitude">目标中心经度（会归一化到 ±180°）。</param>
+    /// <param name="zoomLevel">目标缩放级别（瓦片层级），会按 <see cref="MinZoomLevel"/> / <see cref="MaxZoomLevel"/> 与高度限制收敛。</param>
+    /// <param name="duration">可选的平滑动画时长；为 null 或 0 时立即定位。</param>
+    /// <remarks>
+    /// 控件尚未完成布局时会暂存中心与级别，并在 GL 首帧测出最终物理像素视口后一次性应用。
+    /// 三维模式按目标中心纬度与当前俯仰角迭代求解高度；平面模式为解析换算。
+    /// </remarks>
+    public void SetView(double latitude, double longitude, double zoomLevel, TimeSpan? duration = null)
+    {
+        if (!double.IsFinite(latitude) || !double.IsFinite(longitude) || !double.IsFinite(zoomLevel))
+            return;
+
+        var level = ClampZoomLevel(zoomLevel);
+        var lat = MathUtil.Clamp(latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
+        var lon = MathUtil.NormalizeLongitude(longitude);
+
+        if (!HasUsableViewport)
+        {
+            ClearPendingZoom();
+            _pendingZoomLevel = level;
+            _pendingZoomDuration = duration;
+            _pendingZoomLatitude = lat;
+            _pendingZoomLongitude = lon;
+            return;
+        }
+
+        ClearPendingZoom();
+        ApplyZoomLevel(level, duration, lat, lon);
+    }
+
+    /// <summary>
+    /// <see cref="SetView"/> 的别名：按缩放级别（而不是高度）原子定位中心。
+    /// 三维地球已有的 <see cref="JumpTo"/> 第三个参数是高度，C# 无法用相同签名再重载级别版本，
+    /// 因此级别版本使用该方法名。
+    /// </summary>
+    public void JumpToLevel(double latitude, double longitude, double zoomLevel, TimeSpan? duration = null) =>
+        SetView(latitude, longitude, zoomLevel, duration);
 
     #endregion
 
     #region 内部实现
 
     private void ApplyZoomLevel(double level, TimeSpan? duration)
+        => ApplyZoomLevel(level, duration, _camera.CenterLatitude, _camera.CenterLongitude);
+
+    private void ApplyZoomLevel(double level, TimeSpan? duration, double latitude, double longitude)
     {
         var (width, height) = GetZoomViewport();
         if (!double.IsFinite(height) || height <= 0d)
             return;
 
-        var altitude = GetTargetAltitudeForZoomLevel(level, width, height);
+        var altitude = GetTargetAltitudeForZoomLevel(level, width, height, latitude, longitude);
         if (!double.IsFinite(altitude) || altitude <= 0d)
             return;
 
@@ -152,12 +197,12 @@ public partial class GlobeView
 
         if (duration is { } span && span > TimeSpan.Zero)
         {
-            FlyTo(_camera.CenterLatitude, _camera.CenterLongitude, altitude, span);
+            FlyTo(latitude, longitude, altitude, span);
         }
         else
         {
             _flight = null;
-            JumpTo(_camera.CenterLatitude, _camera.CenterLongitude, altitude);
+            JumpTo(latitude, longitude, altitude);
         }
     }
 
@@ -165,7 +210,8 @@ public partial class GlobeView
     /// 按目标级别求相机高度：平面模式用解析反函数；三维模式在倾斜视角下用二分逼近，
     /// 使 <see cref="OrbitCamera.GetZoomLevel"/> 真正落在请求级别上（解析反函数只适用正俯视）。
     /// </summary>
-    private double GetTargetAltitudeForZoomLevel(double level, double width, double height)
+    private double GetTargetAltitudeForZoomLevel(double level, double width, double height,
+        double? latitude = null, double? longitude = null)
     {
         if (_camera.IsFlat)
             return _camera.GetAltitudeForZoomLevel(level, height);
@@ -178,6 +224,8 @@ public partial class GlobeView
         var aspect = width / height;
 
         var probe = _camera.Clone();
+        probe.CenterLatitude = latitude ?? _camera.CenterLatitude;
+        probe.CenterLongitude = longitude ?? _camera.CenterLongitude;
         probe.MinDistance = 1d + minAltitude / GeoMath.EarthRadius;
         probe.MaxDistance = 1d + maxAltitude / GeoMath.EarthRadius;
 
@@ -237,6 +285,19 @@ public partial class GlobeView
         return (Math.Max(1d, Bounds.Width * scaling), Math.Max(1d, Bounds.Height * scaling));
     }
 
+    /// <summary>布局完成且 GL 已测出物理像素尺寸，可安全按级别换算高度。</summary>
+    private bool HasUsableViewport => Bounds.Width > 1d && Bounds.Height > 1d && _surface.PixelHeight > 1d;
+
+    private void ClearPendingZoom()
+    {
+        _pendingZoomLevel = null;
+        _pendingZoomDuration = null;
+        _pendingZoomLatitude = double.NaN;
+        _pendingZoomLongitude = double.NaN;
+        _pendingZoomApplied = false;
+        _pendingZoomAppliedHeight = double.NaN;
+    }
+
     /// <summary>缩放上下限变化后，把当前级别收敛进新区间。</summary>
     private void OnZoomLimitsChanged()
     {
@@ -252,17 +313,16 @@ public partial class GlobeView
             ZoomToLevel(clamped);
     }
 
-    /// <summary>GL 首帧后应用布局前请求的缩放级别（此时物理像素尺寸已准确）。</summary>
+    /// <summary>GL 首帧后应用布局前请求的缩放级别/视口（此时物理像素尺寸已准确）。</summary>
     private void ApplyPendingZoomLevel()
     {
         if (_pendingZoomLevel is not { } level)
         {
-            _pendingZoomApplied = false;
-            _pendingZoomDuration = null;
+            ClearPendingZoom();
             return;
         }
 
-        if (Bounds.Width <= 1d || Bounds.Height <= 1d || _surface.PixelHeight <= 1d)
+        if (!HasUsableViewport)
             return;
 
         var height = _surface.PixelHeight;
@@ -271,19 +331,25 @@ public partial class GlobeView
         // 保持请求直到连续两帧高度一致，再清掉暂存，保证按最终视口换算
         if (_pendingZoomApplied && Math.Abs(height - _pendingZoomAppliedHeight) < 0.75d)
         {
-            _pendingZoomLevel = null;
-            _pendingZoomDuration = null;
-            _pendingZoomApplied = false;
+            ClearPendingZoom();
             return;
         }
 
-        _pendingZoomApplied = true;
-        _pendingZoomAppliedHeight = height;
+        var duration = _pendingZoomDuration;
+        var pendingLatitude = _pendingZoomLatitude;
+        var pendingLongitude = _pendingZoomLongitude;
+        var latitude = double.IsFinite(pendingLatitude) ? pendingLatitude : _camera.CenterLatitude;
+        var longitude = double.IsFinite(pendingLongitude) ? pendingLongitude : _camera.CenterLongitude;
 
-        ApplyZoomLevel(ClampZoomLevel(level), _pendingZoomDuration);
+        ApplyZoomLevel(ClampZoomLevel(level), duration, latitude, longitude);
 
         // ApplyZoomLevel → JumpTo/FlyTo 会取消 pending；此处恢复，等下一帧确认视口稳定
         _pendingZoomLevel = level;
+        _pendingZoomDuration = duration;
+        _pendingZoomLatitude = pendingLatitude;
+        _pendingZoomLongitude = pendingLongitude;
+        _pendingZoomApplied = true;
+        _pendingZoomAppliedHeight = height;
     }
 
     private void OnZoomDisplayChanged()

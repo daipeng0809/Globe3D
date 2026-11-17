@@ -15,7 +15,12 @@ public sealed class OrbitCamera
     /// <summary>相机到地心的距离，单位球半径（1 = 地表）。</summary>
     public double Distance { get; set; } = 2.6;
 
-    /// <summary>俯仰角（度）。0 为正俯视，值越大越接近水平。</summary>
+    /// <summary>
+    /// 视线俯仰角（度）：视线与中心地表法线的夹角。0 为正俯视（垂直向下），
+    /// 值越大越接近水平，最大 88。相机会按当前地心距离把该角度反解为轨道偏移角，
+    /// 因此低空时轨道偏移会自动收敛到地平线以内，不会把中心点转到球体背面。
+    /// 平面模式下不参与投影。
+    /// </summary>
     public double Pitch { get; set; }
 
     /// <summary>航向角（度），绕视线方向旋转画面。</summary>
@@ -38,6 +43,18 @@ public sealed class OrbitCamera
 
     /// <summary>平面模式视口中心的墨卡托纵坐标（0 为北，1 为南）。</summary>
     public double FlatCenterY { get; private set; } = 0.5d;
+
+    /// <summary>
+    /// 实际显示中心的纬度（度）。平面模式返回视口限制后的中心；三维模式与 <see cref="CenterLatitude"/> 相同。
+    /// </summary>
+    public double EffectiveCenterLatitude =>
+        IsFlat ? GeoMath.MercatorYToLatitude(FlatCenterY) : CenterLatitude;
+
+    /// <summary>
+    /// 实际显示中心的经度（度）。平面模式返回视口限制后的中心；三维模式与 <see cref="CenterLongitude"/> 相同。
+    /// </summary>
+    public double EffectiveCenterLongitude =>
+        IsFlat ? FlatCenterX * 360d - 180d : CenterLongitude;
 
     /// <summary>允许的最小地心距离。</summary>
     public double MinDistance { get; set; } = 1.015;
@@ -107,9 +124,11 @@ public sealed class OrbitCamera
             : Vec3.Normalize(Vec3.Cross(Vec3.UnitY, target));
         var north = Vec3.Cross(target, east);
 
-        var pitchRad = (float)(Pitch * MathUtil.DegToRad);
-        var cosP = MathF.Cos(pitchRad);
-        var sinP = MathF.Sin(pitchRad);
+        // Pitch 是视线相对地表法线的俯仰角；轨道偏移角随高度收缩，
+        // 保证任何高度下中心点都在地平线以内（低空时不会再绕到球体背面）
+        var orbitAngle = GetOrbitAngleForViewPitch(Pitch, Distance);
+        var cosP = (float)Math.Cos(orbitAngle);
+        var sinP = (float)Math.Sin(orbitAngle);
 
         var d = (float)Distance;
         Position = (target * cosP - north * sinP) * d;
@@ -168,6 +187,45 @@ public sealed class OrbitCamera
         FarPlane = far;
         Projection = Mat4.Perspective((float)(FieldOfView * MathUtil.DegToRad), Aspect, near, far);
         ViewProjection = Mat4.Multiply(Projection, View);
+    }
+
+    /// <summary>
+    /// 当前视线相对中心地表法线的实际俯仰角（度）。0 为垂直向下，接近 90 为接近水平；
+    /// 平面模式固定返回 0。返回值基于最近一次 <see cref="Update"/> 计算的相机姿态。
+    /// </summary>
+    public double GetEffectivePitch()
+    {
+        if (IsFlat)
+            return 0d;
+
+        var target = GeoMath.LonLatToUnitVector(CenterLongitude, CenterLatitude);
+        var forward = Vec3.Normalize(target - Position);
+        if (forward.LengthSquared < 1e-12f)
+            return Pitch;
+
+        var cos = MathUtil.Clamp(Vec3.Dot(forward, -target), -1f, 1f);
+        return Math.Acos(cos) * MathUtil.RadToDeg;
+    }
+
+    /// <summary>
+    /// 把视线俯仰角反解为轨道偏移角（弧度）。
+    /// 视线与中心点法线的夹角为 <paramref name="pitchDegrees"/> 时，
+    /// 相机方向与中心点径向的夹角由三角关系唯一确定，且始终小于地平线角 acos(1/d)。
+    /// </summary>
+    internal static double GetOrbitAngleForViewPitch(double pitchDegrees, double distance)
+    {
+        var d = Math.Max(1d + 1e-9d, distance);
+        var pitch = MathUtil.Clamp(pitchDegrees, 0d, 89.99d) * MathUtil.DegToRad;
+        var k = Math.Cos(pitch);
+        k *= k;
+
+        if (k <= 1e-12d)
+            return Math.Acos(1d / d);
+
+        // 三角关系：cos(pitch) = (d·cosγ - 1) / sqrt(1 - 2d·cosγ + d²)
+        // 令 u = d·cosγ - 1，解得 u = sqrt(k·(k + d² - 1)) - k
+        var u = Math.Sqrt(k * (k + d * d - 1d)) - k;
+        return Math.Acos(MathUtil.Clamp((u + 1d) / d, -1d, 1d));
     }
 
     /// <summary>把屏幕像素坐标转换为世界空间射线。平面模式下从相机中心（0,0,1）指向该屏幕点的地表。</summary>
@@ -473,9 +531,10 @@ public sealed class OrbitCamera
         FlatCenterY = MathUtil.Clamp(GeoMath.LatitudeToMercatorY(CenterLatitude),
             halfHeight, 1d - halfHeight);
 
+        // 视口夹取只作用于实际投影中心，不回写 CenterLatitude/CenterLongitude：
+        // 这两个属性保留调用方请求的目标中心，放大或缩小后仍可回到该位置；
+        // 用户拖拽/缩放后由 PanFlatByPixels / SetFlatCenter 显式回写实际中心。
         // 平面模式不使用轨道相机，保留稳定的正交朝向供外部读取
-        CenterLongitude = FlatCenterX * 360d - 180d;
-        CenterLatitude = GeoMath.MercatorYToLatitude(FlatCenterY);
         Position = new Vec3(0f, 0f, 1f);
         Forward = new Vec3(0f, 0f, -1f);
         Right = Vec3.UnitX;

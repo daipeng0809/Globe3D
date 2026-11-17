@@ -1095,8 +1095,8 @@ internal sealed class GlobeOverlay : Control
         // 兜底：按高度与垂直视场角估算（正俯视近似），保证比例尺始终有值
         if (camera.IsFlat)
         {
-            // 平面模式：世界宽度为赤道周长，按中心纬度收缩为地面米数
-            var cosLat = Math.Max(0.01d, Math.Cos(camera.CenterLatitude * MathUtil.DegToRad));
+            // 平面模式：世界宽度为赤道周长，按实际显示中心纬度收缩为地面米数
+            var cosLat = Math.Max(0.01d, Math.Cos(camera.EffectiveCenterLatitude * MathUtil.DegToRad));
             return 2d * Math.PI * GeoMath.EarthRadius * cosLat /
                    Math.Max(1d, camera.FlatScaleFactor * Math.Max(1d, height));
         }
