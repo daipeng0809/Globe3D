@@ -1,0 +1,47 @@
+name: Publish NuGet
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to publish (tag or branch)
+        required: true
+        default: v2.0.0
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pack
+        run: dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release -o artifacts
+
+      - name: NuGet login (OIDC -> temporary API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: daipeng0809
+
+      - name: Push package and symbols
+        run: |
+          for package in artifacts/*.nupkg artifacts/*.snupkg; do
+            dotnet nuget push "$package" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json
+          done
