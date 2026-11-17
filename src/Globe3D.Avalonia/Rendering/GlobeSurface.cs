@@ -36,6 +36,7 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
     private int _consecutiveErrors;
 
     private GlProgram? _earthProgram;
+    private GlProgram? _flatProgram;
     private GlProgram? _starProgram;
     private GlProgram? _atmosphereProgram;
 
@@ -209,6 +210,7 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
             g.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
 
             _earthProgram = new GlProgram(g, GlobeShaders.EarthVertex, GlobeShaders.EarthFragment, "earth", _isOpenGlEs);
+            _flatProgram = new GlProgram(g, GlobeShaders.FlatVertex, GlobeShaders.EarthFragment, "flat", _isOpenGlEs);
             _starProgram = new GlProgram(g, GlobeShaders.StarVertex, GlobeShaders.StarFragment, "stars", _isOpenGlEs);
             _atmosphereProgram = new GlProgram(g, GlobeShaders.SphereVertex, GlobeShaders.AtmosphereFragment, "atmosphere", _isOpenGlEs);
 
@@ -236,9 +238,10 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
             if (_gl != null)
             {
                 _earthProgram?.Dispose();
+                _flatProgram?.Dispose();
                 _starProgram?.Dispose();
                 _atmosphereProgram?.Dispose();
-                _earthProgram = _starProgram = _atmosphereProgram = null;
+                _earthProgram = _flatProgram = _starProgram = _atmosphereProgram = null;
 
                 ReleaseAllTextures(_gl);
 
@@ -296,13 +299,21 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
             g.ClearDepth(1f);
             g.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
 
-            if (ShowStars)
-                RenderStarField(g);
+            if (Camera.IsFlat)
+            {
+                // 二维平面：不绘制星空/大气，只铺影像瓦片
+                RenderFlatGlobe(g);
+            }
             else
-                RenderFallbackSky(g);
+            {
+                if (ShowStars)
+                    RenderStarField(g);
+                else
+                    RenderFallbackSky(g);
 
-            RenderGlobe(g);
-            RenderAtmosphere(g);
+                RenderGlobe(g);
+                RenderAtmosphere(g);
+            }
 
             g.BindVertexArray(0);
             g.UseProgram(0);
@@ -476,6 +487,78 @@ internal sealed partial class GlobeSurface : OpenGlControlBase
 
         DrawnTileCount = drawn;
         g.Disable(EnableCap.CullFace);
+    }
+
+    private void RenderFlatGlobe(GL g)
+    {
+        var program = _flatProgram;
+        if (program == null)
+            return;
+
+        g.Disable(EnableCap.DepthTest);
+        g.Disable(EnableCap.CullFace);
+        g.Disable(EnableCap.Blend);
+        g.DepthMask(false);
+
+        program.Use();
+        program.SetInt("uTexture", 0);
+        program.SetFloat("uAmbient", 1f);
+        program.SetFloat("uLighting", 0f);
+        program.SetFloat("uAtmosphereStrength", 0f);
+        program.SetVec3("uCameraPos", 0f, 0f, 1f);
+
+        var fallback = FallbackColor;
+        program.SetVec3("uFallbackColor", fallback.R / 255f, fallback.G / 255f, fallback.B / 255f);
+
+        g.ActiveTexture(TextureUnit.Texture0);
+        g.BindVertexArray(_tileVao);
+
+        var scale = Camera.FlatScaleFactor * _pixelHeight;
+        var centerX = Camera.FlatCenterX;
+        var centerY = Camera.FlatCenterY;
+        var halfWidth = Math.Max(1f, _pixelWidth * 0.5f);
+        var halfHeight = Math.Max(1f, _pixelHeight * 0.5f);
+        var drawn = 0;
+
+        foreach (var item in DrawList)
+        {
+            if (drawn >= MaxTilesPerFrame)
+                break;
+
+            // 用双精度把瓦片屏幕范围直接算成 NDC：避免“世界像素坐标”过大时 float 精度丢失，
+            // 深层级放大时瓦片边缘不会抖动或错位
+            var left = (float)((item.Left - centerX) * scale / halfWidth);
+            var right = (float)((item.Right - centerX) * scale / halfWidth);
+            var top = (float)(-(item.Top - centerY) * scale / halfHeight);
+            var bottom = (float)(-(item.Bottom - centerY) * scale / halfHeight);
+            program.SetVec4("uFlatRect", left, top, right, bottom);
+
+            if (item.Texture != 0)
+            {
+                g.BindTexture(TextureTarget.Texture2D, item.Texture);
+                program.SetFloat("uHasTexture", 1f);
+                program.SetVec2("uUvScale", item.UvScaleX, item.UvScaleY);
+                program.SetVec2("uUvOffset", item.UvOffsetX, item.UvOffsetY);
+            }
+            else
+            {
+                g.BindTexture(TextureTarget.Texture2D, 0);
+                program.SetFloat("uHasTexture", 0f);
+                program.SetVec2("uUvScale", 1f, 1f);
+                program.SetVec2("uUvOffset", 0f, 0f);
+            }
+
+            unsafe
+            {
+                g.DrawElements(PrimitiveType.Triangles, (uint)_tileIndexCount,
+                    DrawElementsType.UnsignedShort, (void*)0);
+            }
+
+            drawn++;
+        }
+
+        DrawnTileCount = drawn;
+        g.DepthMask(true);
     }
 
     private void RenderAtmosphere(GL g)

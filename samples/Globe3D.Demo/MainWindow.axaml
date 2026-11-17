@@ -19,6 +19,7 @@
           <Button x:Name="FlyButton" Content="飞到上海" FontSize="12" Padding="12,5" />
           <Button x:Name="BasemapButton" Content="切换底图" FontSize="12" Padding="12,5" />
           <Button x:Name="StatsButton" Content="性能面板：开" FontSize="12" Padding="12,5" />
+          <Button x:Name="FlatButton" Content="平面模式" FontSize="12" Padding="12,5" />
           <Button x:Name="RotateButton" Content="自动旋转" FontSize="12" Padding="12,5" />
           <Button x:Name="ResetButton" Content="复位视角" FontSize="12" Padding="12,5" />
         </StackPanel>

@@ -52,7 +52,41 @@ public partial class MainWindow : Window
         Globe.RenderingError += (_, msg) => Program.Log("RENDER ERROR: " + msg);
 
         var args = Environment.GetCommandLineArgs();
-        if (args.Contains("--zoom-test"))
+        if (args.Contains("--flat"))
+        {
+            Globe.IsFlatMode = true;
+            var flatButton = this.FindControl<Button>("FlatButton");
+            if (flatButton != null)
+                flatButton.Content = "三维模式";
+        }
+
+        else if (args.Contains("--flat-toggle-test"))
+        {
+            // 平面/三维切换与平面平移回归
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = true, TimeSpan.FromSeconds(1.5));
+            DispatcherTimer.RunOnce(() =>
+            {
+                Globe.Camera.CenterLongitude = 0d;
+                Globe.Camera.CenterLatitude = 0d;
+                Globe.Refresh();
+            }, TimeSpan.FromSeconds(2));
+            DispatcherTimer.RunOnce(() =>
+            {
+                var beforeLon = Globe.Camera.CenterLongitude;
+                var beforeLat = Globe.Camera.CenterLatitude;
+                var factorBefore = Globe.Camera.FlatScaleFactor;
+                Globe.Camera.PanFlatByPixels(-240, 120, Globe.Bounds.Width, Globe.Bounds.Height);
+                Globe.Refresh();
+                Program.Log($"[FLAT] pan {beforeLon:0.00},{beforeLat:0.00} -> " +
+                            $"{Globe.Camera.CenterLongitude:0.00},{Globe.Camera.CenterLatitude:0.00} " +
+                            $"factor {factorBefore:0.###}->{Globe.Camera.FlatScaleFactor:0.###}");
+            }, TimeSpan.FromSeconds(2.5));
+            DispatcherTimer.RunOnce(() => Globe.IsFlatMode = false, TimeSpan.FromSeconds(4));
+            DispatcherTimer.RunOnce(() =>
+                Program.Log($"[FLAT] toggle final flat={Globe.IsFlatMode} lod={Globe.GetDrawnZoomRange()}"),
+                TimeSpan.FromSeconds(5.5));
+        }
+        else if (args.Contains("--zoom-test"))
         {
             DispatcherTimer.RunOnce(
                 () => Globe.FlyTo(31.2304, 121.4737, 260_000d, TimeSpan.FromMilliseconds(1200)),
@@ -544,6 +578,14 @@ public partial class MainWindow : Window
         {
             Globe.ShowPerformancePanel = !Globe.ShowPerformancePanel;
             statsButton.Content = Globe.ShowPerformancePanel ? "性能面板：开" : "性能面板：关";
+        };
+
+        // 平面模式：演示 IsFlatMode 开关
+        var flatButton = this.FindControl<Button>("FlatButton")!;
+        flatButton.Click += (_, _) =>
+        {
+            Globe.IsFlatMode = !Globe.IsFlatMode;
+            flatButton.Content = Globe.IsFlatMode ? "三维模式" : "平面模式";
         };
     }
 

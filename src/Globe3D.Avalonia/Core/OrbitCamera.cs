@@ -24,6 +24,18 @@ public sealed class OrbitCamera
     /// <summary>垂直视场角（度）。</summary>
     public double FieldOfView { get; set; } = 45.0;
 
+    /// <summary>是否使用二维平面（Web 墨卡托）投影；为 false 时使用三维球面。</summary>
+    public bool IsFlat { get; set; }
+
+    /// <summary>平面模式下每个视口高度对应的墨卡托世界像素数。</summary>
+    public double FlatScaleFactor { get; private set; } = 1d;
+
+    /// <summary>平面模式视口中心的墨卡托坐标（0 为西/北，1 为东/南）。</summary>
+    public double FlatCenterX { get; private set; } = 0.5d;
+
+    /// <summary>平面模式视口中心的墨卡托纵坐标（0 为北，1 为南）。</summary>
+    public double FlatCenterY { get; private set; } = 0.5d;
+
     /// <summary>允许的最小地心距离。</summary>
     public double MinDistance { get; set; } = 1.015;
 
@@ -78,6 +90,12 @@ public sealed class OrbitCamera
     {
         Normalize();
         Aspect = (float)Math.Max(0.0001d, aspect);
+
+        if (IsFlat)
+        {
+            UpdateFlat();
+            return;
+        }
 
         var target = GeoMath.LonLatToUnitVector(CenterLongitude, CenterLatitude);
 
@@ -149,7 +167,7 @@ public sealed class OrbitCamera
         ViewProjection = Mat4.Multiply(Projection, View);
     }
 
-    /// <summary>把屏幕像素坐标转换为世界空间射线。</summary>
+    /// <summary>把屏幕像素坐标转换为世界空间射线。平面模式下从相机中心（0,0,1）指向该屏幕点的地表。</summary>
     public void ScreenToRay(double screenX, double screenY, double viewWidth, double viewHeight,
         out Vec3 origin, out Vec3 direction)
     {
@@ -160,6 +178,20 @@ public sealed class OrbitCamera
             return;
         }
 
+        if (IsFlat)
+        {
+            if (!ScreenToGround(screenX, screenY, viewWidth, viewHeight, out var point))
+            {
+                direction = Forward;
+                return;
+            }
+
+            var target = GeoMath.LonLatToUnitVector(point.Longitude, point.Latitude);
+            var delta = target - origin;
+            direction = delta.LengthSquared > 1e-12f ? Vec3.Normalize(delta) : Forward;
+            return;
+        }
+
         var ndcX = (float)(2d * screenX / viewWidth - 1d);
         var ndcY = (float)(1d - 2d * screenY / viewHeight);
         var tanHalf = MathF.Tan((float)(FieldOfView * MathUtil.DegToRad) * 0.5f);
@@ -167,11 +199,25 @@ public sealed class OrbitCamera
         direction = Vec3.Normalize(dir);
     }
 
-    /// <summary>把屏幕像素坐标投射到地球表面。</summary>
+    /// <summary>把屏幕像素坐标投射到地面。平面模式下按 Web 墨卡托反算，越界返回 false。</summary>
     public bool ScreenToGround(double screenX, double screenY, double viewWidth, double viewHeight,
         out GeoPoint point)
     {
         point = default;
+
+        if (IsFlat)
+        {
+            var height = Math.Max(1d, viewHeight);
+            var scale = FlatScaleFactor * height;
+            var mercatorX = FlatCenterX + (screenX - viewWidth * 0.5d) / scale;
+            var mercatorY = FlatCenterY + (screenY - height * 0.5d) / scale;
+            if (mercatorX is < 0d or > 1d || mercatorY is < 0d or > 1d)
+                return false;
+
+            point = new GeoPoint(GeoMath.MercatorYToLatitude(mercatorY), mercatorX * 360d - 180d);
+            return true;
+        }
+
         ScreenToRay(screenX, screenY, viewWidth, viewHeight, out var origin, out var direction);
         if (!GeoMath.RaySphereIntersect(origin, direction, 1f, out var t))
             return false;
@@ -182,13 +228,27 @@ public sealed class OrbitCamera
         return true;
     }
 
-    /// <summary>把世界坐标投影到屏幕像素坐标。</summary>
+    /// <summary>把世界坐标投影到屏幕像素坐标。平面模式下忽略高度，只按经纬度投影。</summary>
     public bool Project(Vec3 world, double viewWidth, double viewHeight,
         out double screenX, out double screenY, out float ndcDepth)
     {
         screenX = 0;
         screenY = 0;
         ndcDepth = 1f;
+
+        if (IsFlat)
+        {
+            GeoMath.UnitVectorToLonLat(world, out var lon, out var lat);
+            var height = Math.Max(1d, viewHeight);
+            var scale = FlatScaleFactor * height;
+            var mercatorX = (MathUtil.NormalizeLongitude(lon) + 180d) / 360d;
+            var mercatorY = GeoMath.LatitudeToMercatorY(lat);
+            screenX = viewWidth * 0.5d + (mercatorX - FlatCenterX) * scale;
+            screenY = height * 0.5d + (mercatorY - FlatCenterY) * scale;
+            ndcDepth = 0f;
+            return true;
+        }
+
         Mat4.TransformPoint(ViewProjection, world, out var x, out var y, out var z, out var w);
         if (w <= 1e-6f)
             return false;
@@ -205,14 +265,37 @@ public sealed class OrbitCamera
     public bool ProjectGeo(GeoPoint geo, double viewWidth, double viewHeight,
         out double screenX, out double screenY, out float ndcDepth)
     {
+        // 平面模式直接用经纬度换算，避免 ±180° 端点经过单位向量往返时被浮点误差翻到另一侧
+        if (IsFlat)
+        {
+            var height = Math.Max(1d, viewHeight);
+            var scale = FlatScaleFactor * height;
+            var mercatorX = (MathUtil.NormalizeLongitude(geo.Longitude) + 180d) / 360d;
+            var mercatorY = GeoMath.LatitudeToMercatorY(geo.Latitude);
+            screenX = viewWidth * 0.5d + (mercatorX - FlatCenterX) * scale;
+            screenY = height * 0.5d + (mercatorY - FlatCenterY) * scale;
+            ndcDepth = 0f;
+            return true;
+        }
+
         var world = GeoMath.LonLatToUnitVector(geo.Longitude, geo.Latitude) *
                     GeoMath.AltitudeToRadius(geo.Altitude);
         return Project(world, viewWidth, viewHeight, out screenX, out screenY, out ndcDepth);
     }
 
-    /// <summary>判断某个世界坐标点是否位于地球遮挡之外可见。</summary>
+    /// <summary>判断某个世界坐标点是否位于可见区域。平面模式下按屏幕范围判断。</summary>
     public bool IsVisible(Vec3 world)
     {
+        if (IsFlat)
+        {
+            GeoMath.UnitVectorToLonLat(world, out var lon, out var lat);
+            var mercatorX = (MathUtil.NormalizeLongitude(lon) + 180d) / 360d;
+            var mercatorY = GeoMath.LatitudeToMercatorY(lat);
+            var flatNdcX = (mercatorX - FlatCenterX) * 2d * FlatScaleFactor / Math.Max(0.0001d, Aspect);
+            var flatNdcY = (mercatorY - FlatCenterY) * 2d * FlatScaleFactor;
+            return Math.Abs(flatNdcX) <= 1.35d && Math.Abs(flatNdcY) <= 1.35d;
+        }
+
         if (GeoMath.IsSegmentOccluded(Position, world, 1f))
             return false;
 
@@ -238,8 +321,95 @@ public sealed class OrbitCamera
             Heading = Heading,
             FieldOfView = FieldOfView,
             MinDistance = MinDistance,
-            MaxDistance = MaxDistance
+            MaxDistance = MaxDistance,
+            IsFlat = IsFlat
         };
+    }
+
+    /// <summary>平面模式下按屏幕像素平移地图中心。</summary>
+    public void PanFlatByPixels(double dx, double dy, double viewWidth, double viewHeight)
+    {
+        if (!IsFlat)
+            return;
+
+        var height = Math.Max(1d, viewHeight);
+        var scale = FlatScaleFactor * height;
+        var halfWidth = Math.Min(0.5d, Math.Max(0d, viewWidth) / (2d * scale));
+        var halfHeight = Math.Min(0.5d, height / (2d * scale));
+
+        FlatCenterX = MathUtil.Clamp(FlatCenterX - dx / scale, halfWidth, 1d - halfWidth);
+        FlatCenterY = MathUtil.Clamp(FlatCenterY - dy / scale, halfHeight, 1d - halfHeight);
+        CenterLongitude = FlatCenterX * 360d - 180d;
+        CenterLatitude = GeoMath.MercatorYToLatitude(FlatCenterY);
+        Normalize();
+    }
+
+    /// <summary>平面模式下当前视口覆盖的经纬度范围。</summary>
+    public bool TryGetFlatViewportBounds(out double west, out double east, out double south, out double north)
+    {
+        west = east = south = north = 0d;
+        if (!IsFlat)
+            return false;
+
+        var halfWidth = Aspect / (2d * FlatScaleFactor);
+        var halfHeight = 1d / (2d * FlatScaleFactor);
+        var left = MathUtil.Clamp(FlatCenterX - halfWidth, 0d, 1d);
+        var right = MathUtil.Clamp(FlatCenterX + halfWidth, 0d, 1d);
+        var top = MathUtil.Clamp(FlatCenterY - halfHeight, 0d, 1d);
+        var bottom = MathUtil.Clamp(FlatCenterY + halfHeight, 0d, 1d);
+
+        west = left * 360d - 180d;
+        east = right * 360d - 180d;
+        north = GeoMath.MercatorYToLatitude(top);
+        south = GeoMath.MercatorYToLatitude(bottom);
+        return right > left && bottom > top;
+    }
+
+    /// <summary>平面模式下按墨卡托坐标设置地图中心（用于以光标为锚缩放）。</summary>
+    public void SetFlatCenter(double mercatorX, double mercatorY, double viewWidth, double viewHeight)
+    {
+        if (!IsFlat)
+            return;
+
+        var height = Math.Max(1d, viewHeight);
+        var scale = FlatScaleFactor * height;
+        var halfWidth = Math.Min(0.5d, Math.Max(0d, viewWidth) / (2d * scale));
+        var halfHeight = Math.Min(0.5d, height / (2d * scale));
+
+        FlatCenterX = MathUtil.Clamp(mercatorX, halfWidth, 1d - halfWidth);
+        FlatCenterY = MathUtil.Clamp(mercatorY, halfHeight, 1d - halfHeight);
+        CenterLongitude = FlatCenterX * 360d - 180d;
+        CenterLatitude = GeoMath.MercatorYToLatitude(FlatCenterY);
+        Normalize();
+    }
+
+    private void UpdateFlat()
+    {
+        var altitude = Math.Max(1d, AltitudeMeters);
+        var tanHalf = Math.Max(1e-4d, Math.Tan(FieldOfView * MathUtil.DegToRad * 0.5d));
+
+        // 比例尺只由高度与视场角决定：Web 墨卡托的“世界像素数”不随中心纬度变化，
+        // 否则纯平移会改变缩放比例尺，导致拖拽点跟不上光标、瓦片 LOD 反复跳级。
+        var factor = Math.PI * GeoMath.EarthRadius / (altitude * tanHalf);
+        FlatScaleFactor = Math.Max(factor, Math.Max(Aspect, 1d));
+
+        var halfWidth = Aspect / (2d * FlatScaleFactor);
+        var halfHeight = 1d / (2d * FlatScaleFactor);
+        FlatCenterX = MathUtil.Clamp((MathUtil.NormalizeLongitude(CenterLongitude) + 180d) / 360d,
+            halfWidth, 1d - halfWidth);
+        FlatCenterY = MathUtil.Clamp(GeoMath.LatitudeToMercatorY(CenterLatitude),
+            halfHeight, 1d - halfHeight);
+
+        // 平面模式不使用轨道相机，保留稳定的正交朝向供外部读取
+        CenterLongitude = FlatCenterX * 360d - 180d;
+        CenterLatitude = GeoMath.MercatorYToLatitude(FlatCenterY);
+        Position = new Vec3(0f, 0f, 1f);
+        Forward = new Vec3(0f, 0f, -1f);
+        Right = Vec3.UnitX;
+        Up = Vec3.UnitY;
+        NearPlane = 0.01f;
+        FarPlane = 10f;
+        View = Projection = ViewProjection = Mat4.Identity;
     }
 
     private static Vec3 TransformDirection(in Mat4 m, in Vec3 v)

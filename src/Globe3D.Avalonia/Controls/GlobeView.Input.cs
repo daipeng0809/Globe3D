@@ -215,7 +215,16 @@ public partial class GlobeView
         if (point.Properties.IsLeftButtonPressed)
             _dragMode = DragMode.Rotate;
         else if (point.Properties.IsRightButtonPressed)
+        {
+            // 平面地图没有倾斜/航向概念，右键拖动不处理
+            if (_camera.IsFlat)
+            {
+                e.Handled = true;
+                return;
+            }
+
             _dragMode = DragMode.Tilt;
+        }
         else
             return;
 
@@ -356,10 +365,34 @@ public partial class GlobeView
         if (Math.Abs(delta) < 0.0001d)
             return;
 
+        var position = e.GetPosition(this);
+        var aspect = Bounds.Height > 0 ? Bounds.Width / Bounds.Height : 1d;
+
+        // 平面模式以鼠标位置为锚点缩放：先记录光标下的经纬度，缩放后把它保持在原像素位置
+        GeoPoint? anchor = null;
+        if (_camera.IsFlat)
+        {
+            _camera.Update(aspect);
+            if (_camera.ScreenToGround(position.X, position.Y, Bounds.Width, Bounds.Height, out var geo))
+                anchor = geo;
+        }
+
         var altitude = Math.Max(500d, _camera.AltitudeMeters);
         var factor = Math.Pow(0.80d, delta * Math.Clamp(ZoomSensitivity, 0.1d, 5d));
         _camera.SetAltitude(altitude * factor);
         _camera.Normalize();
+
+        if (_camera.IsFlat && anchor is { } anchorGeo)
+        {
+            _camera.Update(aspect);
+            var height = Math.Max(1d, Bounds.Height);
+            var scale = _camera.FlatScaleFactor * height;
+            var mercatorX = (MathUtil.NormalizeLongitude(anchorGeo.Longitude) + 180d) / 360d;
+            var mercatorY = GeoMath.LatitudeToMercatorY(anchorGeo.Latitude);
+            var centerX = mercatorX - (position.X - Bounds.Width * 0.5d) / scale;
+            var centerY = mercatorY - (position.Y - height * 0.5d) / scale;
+            _camera.SetFlatCenter(centerX, centerY, Bounds.Width, height);
+        }
 
         SyncPropertiesFromCamera();
         InvalidateAll();
@@ -369,6 +402,12 @@ public partial class GlobeView
 
     private void ApplyRotationDrag(double dx, double dy)
     {
+        if (_camera.IsFlat)
+        {
+            ApplyFlatPanDrag(dx, dy);
+            return;
+        }
+
         var height = Math.Max(1d, Bounds.Height);
         var altitude = Math.Max(1500d, _camera.AltitudeMeters);
         var tanHalf = Math.Tan(_camera.FieldOfView * MathUtil.DegToRad * 0.5d);
@@ -398,6 +437,26 @@ public partial class GlobeView
         _camera.Pitch = MathUtil.Clamp(_camera.Pitch + dy * 0.22d, 0d, 88d);
         _camera.Heading = MathUtil.NormalizeLongitude(_camera.Heading - dx * 0.22d);
         _camera.Normalize();
+    }
+
+    /// <summary>平面模式下左键拖动平移地图，并按拖动速度累积惯性。</summary>
+    private void ApplyFlatPanDrag(double dx, double dy)
+    {
+        var beforeLongitude = _camera.CenterLongitude;
+        var beforeLatitude = _camera.CenterLatitude;
+        _camera.PanFlatByPixels(dx, dy, Bounds.Width, Bounds.Height);
+
+        var deltaLongitude = MathUtil.NormalizeLongitudeDelta(_camera.CenterLongitude - beforeLongitude);
+        var deltaLatitude = _camera.CenterLatitude - beforeLatitude;
+
+        var now = _moveClock.Elapsed.TotalSeconds;
+        var elapsed = now - _lastMoveTimestamp;
+        _lastMoveTimestamp = now;
+        if (elapsed is > 0.002 and < 0.25)
+        {
+            _inertiaLongitudeSpeed = _inertiaLongitudeSpeed * 0.55d + deltaLongitude / elapsed * 0.45d;
+            _inertiaLatitudeSpeed = _inertiaLatitudeSpeed * 0.55d + deltaLatitude / elapsed * 0.45d;
+        }
     }
 
     #endregion

@@ -101,6 +101,13 @@ internal sealed class GlobeOverlay : Control
     {
         if (!region.IsVisible || region.Points.Count < 3)
             return;
+
+        if (camera.IsFlat)
+        {
+            DrawFlatRegion(context, camera, region, width, height);
+            return;
+        }
+
         // 区域顶点全部在球面上按大圆插值展开：三维坐标天然没有 ±180° 经线的接缝
         var ring = new List<Vec3>(region.Points.Count * 16);
         for (var i = 0; i < region.Points.Count; i++)
@@ -176,6 +183,130 @@ internal sealed class GlobeOverlay : Control
             if (center is { } point)
                 DrawTextWithShadow(context, region.Label, point, 13d, Brushes.White, BoldTypeface, centerAligned: true);
         }
+    }
+
+    /// <summary>
+    /// 平面模式下的区域绘制：按经纬度线性展开（二维地图不需要大圆插值），
+    /// 跨 ±180° 经线的区域会被拆成左右两段分别填充/描边。
+    /// </summary>
+    private void DrawFlatRegion(DrawingContext context, OrbitCamera camera, GlobeRegion region,
+        double width, double height)
+    {
+        if (!region.IsVisible || region.Points.Count < 3)
+            return;
+
+        var pen = region.Stroke != null
+            ? new Pen(region.Stroke, region.StrokeThickness, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round)
+            : null;
+
+        Point? labelAnchor = null;
+        var bestCount = 0;
+        foreach (var ring in BuildFlatRegionPolygons(region.Points))
+        {
+            var projected = new List<Point>(ring.Count);
+            foreach (var (lon, lat) in ring)
+            {
+                if (!camera.ProjectGeo(new GeoPoint(lat, lon), width, height, out var sx, out var sy, out _))
+                    continue;
+                projected.Add(new Point(sx, sy));
+            }
+
+            if (projected.Count < 3)
+                continue;
+
+            var clipped = ClipPolygonToRect(projected, new Rect(-8d, -8d, width + 16d, height + 16d));
+            if (clipped.Count < 3)
+                continue;
+
+            if (region.Fill != null)
+            {
+                var geometry = BuildGeometry(clipped, closed: true);
+                if (geometry != null)
+                    context.DrawGeometry(region.Fill, null, geometry);
+            }
+
+            if (pen != null)
+                DrawPolyline(context, pen, clipped, closed: true);
+
+            if (clipped.Count > bestCount && ComputeCentroid(clipped) is { } centroid)
+            {
+                bestCount = clipped.Count;
+                labelAnchor = centroid;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(region.Label) && labelAnchor is { } anchor)
+            DrawTextWithShadow(context, region.Label, anchor, 13d, Brushes.White, BoldTypeface, centerAligned: true);
+    }
+
+    /// <summary>
+    /// 平面模式区域环：经度按最短路径展开后，分别平移 -360/0/+360 裁剪到 -180..180，
+    /// 因此跨经线的区域会得到左右两段闭合多边形，填充不会横穿整张地图。
+    /// </summary>
+    private static List<List<(double Lon, double Lat)>> BuildFlatRegionPolygons(IList<GeoPoint> points)
+    {
+        var result = new List<List<(double Lon, double Lat)>>();
+        if (points.Count < 3)
+            return result;
+
+        var unwrapped = new List<(double Lon, double Lat)>(points.Count);
+        var lon = MathUtil.NormalizeLongitude(points[0].Longitude);
+        var lat = MathUtil.Clamp(points[0].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
+        unwrapped.Add((lon, lat));
+
+        for (var i = 1; i < points.Count; i++)
+        {
+            lon += MathUtil.NormalizeLongitudeDelta(points[i].Longitude - lon);
+            lat = MathUtil.Clamp(points[i].Latitude, -GeoMath.MaxMercatorLatitude, GeoMath.MaxMercatorLatitude);
+            unwrapped.Add((lon, lat));
+        }
+
+        foreach (var shift in new[] { -360d, 0d, 360d })
+        {
+            var shifted = new List<(double Lon, double Lat)>(unwrapped.Count);
+            foreach (var point in unwrapped)
+                shifted.Add((point.Lon + shift, point.Lat));
+
+            var clipped = ClipFlatPolygonToLongitude(shifted, -180d, 180d);
+            if (clipped.Count >= 3)
+                result.Add(clipped);
+        }
+
+        return result;
+    }
+
+    private static List<(double Lon, double Lat)> ClipFlatPolygonToLongitude(
+        List<(double Lon, double Lat)> polygon, double west, double east)
+    {
+        var result = ClipFlatHalfPlane(polygon, point => point.Lon - west);
+        return ClipFlatHalfPlane(result, point => east - point.Lon);
+    }
+
+    private static List<(double Lon, double Lat)> ClipFlatHalfPlane(
+        List<(double Lon, double Lat)> polygon, Func<(double Lon, double Lat), double> distance)
+    {
+        var result = new List<(double Lon, double Lat)>(polygon.Count + 4);
+        if (polygon.Count == 0)
+            return result;
+
+        for (var i = 0; i < polygon.Count; i++)
+        {
+            var a = polygon[i];
+            var b = polygon[(i + 1) % polygon.Count];
+            var da = distance(a);
+            var db = distance(b);
+
+            if (da >= 0d)
+                result.Add(a);
+
+            if ((da >= 0d) != (db >= 0d) && Math.Abs(db - da) > 1e-12d)
+            {
+                var t = da / (da - db);
+                result.Add((a.Lon + (b.Lon - a.Lon) * t, a.Lat + (b.Lat - a.Lat) * t));
+            }
+        }
+
+        return result;
     }
 
     /// <summary>把一条边按大圆展开成若干三维点（不含终点，保证首尾不重复）。</summary>
@@ -428,20 +559,22 @@ internal sealed class GlobeOverlay : Control
         var surface = GeoMath.LonLatToUnitVector(marker.Position.Longitude, marker.Position.Latitude);
         var world = surface * radius;
 
-        if (GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
+        if (!camera.IsFlat && GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
             return;
 
-        if (!camera.Project(world, width, height, out var sx, out var sy, out var depth))
+        if (!camera.ProjectGeo(marker.Position, width, height, out var sx, out var sy, out var depth))
             return;
         if (depth is < -1f or > 1f)
+            return;
+        if (IsOutsideFlatViewport(camera, sx, sy, width, height))
             return;
 
         var center = new Point(sx, sy);
         var size = Math.Max(4d, marker.Size);
         var pen = new Pen(marker.Stroke, Math.Max(1d, size * 0.16));
 
-        // 高度引线
-        if (marker.ShowAltitudeLine && marker.Position.Altitude > 1d)
+        // 高度引线（平面模式没有高度概念，标记直接落在地图上）
+        if (!camera.IsFlat && marker.ShowAltitudeLine && marker.Position.Altitude > 1d)
         {
             if (!GeoMath.IsOccludedBySphere(camera.Position, surface)
                 && camera.Project(surface, width, height, out var gx, out var gy, out _))
@@ -572,11 +705,13 @@ internal sealed class GlobeOverlay : Control
         var radius = GeoMath.AltitudeToRadius(marker.Position.Altitude);
         var world = GeoMath.LonLatToUnitVector(marker.Position.Longitude, marker.Position.Latitude) * radius;
 
-        if (GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
+        if (!camera.IsFlat && GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
             return;
-        if (!camera.Project(world, width, height, out var sx, out var sy, out var depth))
+        if (!camera.ProjectGeo(marker.Position, width, height, out var sx, out var sy, out var depth))
             return;
         if (depth is < -1f or > 1f)
+            return;
+        if (IsOutsideFlatViewport(camera, sx, sy, width, height))
             return;
 
         var anchor = new Point(sx + marker.Size * 0.75, sy - marker.Size * 0.75);
@@ -672,11 +807,13 @@ internal sealed class GlobeOverlay : Control
         var radius = GeoMath.AltitudeToRadius(label.Position.Altitude);
         var world = GeoMath.LonLatToUnitVector(label.Position.Longitude, label.Position.Latitude) * radius;
 
-        if (GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
+        if (!camera.IsFlat && GeoMath.IsSegmentOccluded(camera.Position, world, 1f))
             return;
-        if (!camera.Project(world, width, height, out var sx, out var sy, out var depth))
+        if (!camera.ProjectGeo(label.Position, width, height, out var sx, out var sy, out var depth))
             return;
         if (depth is < -1f or > 1f)
+            return;
+        if (IsOutsideFlatViewport(camera, sx, sy, width, height))
             return;
 
         DrawTextWithShadow(context, label.Text, new Point(sx, sy), label.FontSize, label.Foreground,
@@ -753,13 +890,16 @@ internal sealed class GlobeOverlay : Control
         var world = GeoMath.LonLatToUnitVector(marker.Position.Longitude, marker.Position.Latitude) *
                     GeoMath.AltitudeToRadius(marker.Position.Altitude);
 
-        // 地平线遮挡剔除：背面目标投影后可能仍落在图标附近，必须按相机重新判定可见性
-        if (!camera.IsVisible(world))
+        // 地平线遮挡剔除：背面目标投影后可能仍落在图标附近，必须按相机重新判定可见性。
+        // 平面模式没有球体遮挡，且直接用经纬度投影可避开 ±180° 端点经三维向量往返的浮点翻转。
+        if (!camera.IsFlat && !camera.IsVisible(world))
             return false;
 
-        if (!camera.Project(world, width, height, out var sx, out var sy, out var depth))
+        if (!camera.ProjectGeo(marker.Position, width, height, out var sx, out var sy, out var depth))
             return false;
-        if (depth is < -1f or > 1f)
+        if (!camera.IsFlat && depth is < -1f or > 1f)
+            return false;
+        if (IsOutsideFlatViewport(camera, sx, sy, width, height))
             return false;
 
         center = new Point(sx, sy);
@@ -817,6 +957,11 @@ internal sealed class GlobeOverlay : Control
 
         return best;
     }
+
+    /// <summary>平面模式下屏幕坐标超出视口（含 64px 余量）时不再绘制，避免超大坐标进入 Skia。</summary>
+    private static bool IsOutsideFlatViewport(OrbitCamera camera, double screenX, double screenY,
+        double width, double height) =>
+        camera.IsFlat && (screenX < -64d || screenX > width + 64d || screenY < -64d || screenY > height + 64d);
 
     /// <summary>点到矩形的最近距离（点在矩形内为 0）。</summary>
     private static double DistanceToRect(in Rect rect, Point point)

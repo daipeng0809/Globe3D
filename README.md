@@ -4,7 +4,7 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Globe3D.Avalonia.svg)](https://www.nuget.org/packages/Globe3D.Avalonia)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-net8.0-512BD4.svg)](https://dotnet.microsoft.com/)
-[![Avalonia](https://img.shields.io/badge/Avalonia-12.1.6-8B4FBF.svg)](https://avaloniaui.net/)
+[![Avalonia](https://img.shields.io/badge/Avalonia-12.1.1-8B4FBF.svg)](https://avaloniaui.net/)
 
 面向 Avalonia 12 的实时三维地球控件。基于 OpenGL ES 3.0 渲染影像瓦片、程序化星空与大气辉光，
 并在其上叠加三维标记点（支持 png/jpg/gif/svg 图标）、区域多边形与文字标注，
@@ -24,6 +24,7 @@
   - [相机控制](#相机控制)
   - [事件与命中查询](#事件与命中查询)
   - [性能面板](#性能面板)
+  - [平面模式](#平面模式)
 - [数据源](#数据源)
 - [交互](#交互)
 - [主要属性](#主要属性)
@@ -52,6 +53,7 @@
 | 文字标注 | 使用 Avalonia 矢量绘制，中文清晰，自动防重叠避让 |
 | 交互 | 左键旋转、右键倾斜、滚轮缩放、双击飞行、标记/地表拾取 |
 | 渲染调度 | 按需渲染，静止时 CPU/GPU 占用归零 |
+| 平面模式 | `IsFlatMode` 在三维地球与二维 Web 墨卡托平面间切换，支持平移/缩放、瓦片 LOD、标记/区域/标注 |
 | 性能面板 | 一键开启的性能 HUD：0-100 流畅度评分、帧率/刷新率/帧耗时、瓦片与加载队列、MBTiles/磁盘缓存与网络的实时读取速度 |
 
 ## 环境与兼容性
@@ -59,7 +61,7 @@
 | 项目 | 说明 |
 | --- | --- |
 | 目标框架 | `net8.0` |
-| 依赖 | Avalonia 12.1.6、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11 |
+| 依赖 | Avalonia 12.1.1（最低依赖，兼容任意 Avalonia 12.1.1+ 项目）、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11 |
 | 渲染后端 | OpenGL ES 3.0（`OpenGlControlBase`）。Windows 由 ANGLE 提供（底层 D3D11），无需额外运行时 |
 | 平台 | Windows / Linux 桌面；Linux 与国产化平台需要系统加载器提供 GLES 3.0 驱动 |
 | 线程模型 | 控件与叠加层绘制在 UI 线程，瓦片下载/解码在后台线程；图标解码可跨线程调用 |
@@ -74,7 +76,7 @@ dotnet add package Globe3D.Avalonia
 或直接在工程中引用：
 
 ```xml
-<PackageReference Include="Globe3D.Avalonia" Version="1.1.0" />
+<PackageReference Include="Globe3D.Avalonia" Version="1.1.1" />
 ```
 
 XAML 命名空间：
@@ -256,6 +258,22 @@ Console.WriteLine($"{stats.FramesPerSecond:0.0} fps, score {stats.SmoothnessScor
 显示 `—`（不再回放旧样本），评分保留最近一次测量值。
 详细指标含义、采样方式与局限见 [docs/performance-panel.md](docs/performance-panel.md)（英文）。
 
+### 平面模式
+
+```csharp
+globe.IsFlatMode = true;   // 二维 Web 墨卡托平面
+globe.IsFlatMode = false;  // 恢复三维地球
+```
+
+平面模式复用同一套瓦片/LOD/图层能力：
+
+- 左键拖动平移地图，滚轮缩放（复用 `Altitude`），双击飞近；右键拖拽倾斜不生效
+- 不绘制星空、大气与地表光照，标记高度引线隐藏，标记按经纬度落在平面上
+- 区域跨 ±180° 经线时会拆到地图左右两侧；地图在 ±180° 边缘停止，不做横向循环滚动
+- `Pitch` / `Heading` 在平面模式下被忽略，切回三维后仍保留原值
+
+英文说明见 [docs/flat-mode.md](docs/flat-mode.md)。
+
 ## 数据源
 
 ### MBTiles（离线）
@@ -316,6 +334,7 @@ globe.TileSource = new CompositeTileSource(
 | 双击 | 飞行到点击位置 |
 | 单击 | 拾取最近的标记点，或返回地表经纬度 |
 | 鼠标悬停 | 靠近开启提示的标记点时高亮并在鼠标旁显示内容 |
+| 平面模式 | 左键拖动平移、滚轮缩放、双击飞近；右键倾斜不生效 |
 
 ## 主要属性
 
@@ -336,6 +355,7 @@ globe.TileSource = new CompositeTileSource(
 | `MarkerHoverRadius` | double | 18 | 鼠标接近标记点的默认判定半径（像素） |
 | `MarkerHitTolerance` | double | 6 | 单击命中标记点的额外容忍距离（像素） |
 | `AutoRotate` / `AutoRotateSpeed` | bool / double | false / 6 | 自动旋转 |
+| `IsFlatMode` | bool | false | 平面模式（二维 Web 墨卡托地图） |
 | `ShowPerformancePanel` | bool | false | 显示性能面板（帧率、刷新率、瓦片与 IO 统计） |
 | `Layers` | AvaloniaList&lt;GlobeLayer&gt; | 空 | 图层集合，XAML 默认内容 |
 
@@ -363,11 +383,14 @@ globe.TileSource = new CompositeTileSource(
 - 命中测试用「当前相机」重新投影 + 地平线遮挡剔除，再按图标实际尺寸算包围盒：
   鼠标接近按「到包围盒的距离」判定，单击按「最近的一个」命中，层级靠后的标记点优先
 - 惯性：`PointerReleased` 时若指针已静止超过 120 ms，则视为停稳松手，不触发惯性滑动
+- 平面模式：`OrbitCamera.IsFlat` 驱动 Web 墨卡托平面投影；瓦片用独立顶点着色器按屏幕 NDC 矩形铺开，
+  层级由「世界像素宽度 / 瓦片边长」估算；瓦片采样与区域/标记投影直接使用经纬度，避免 ±180° 端点
+  经过三维向量往返时被浮点误差翻到另一侧；区域按经度裁剪拆分绘制
 - 性能统计：帧耗时按最近 120 帧环形缓冲统计；空闲超过 1 秒后帧耗时/刷新率归零（面板显示 `—`），
   评分以固定 60 FPS 为满分线，避免用帧间隔估算的刷新率做分母造成循环归一化；瓦片 IO 由
   `MbTilesTileSource` / `HttpTileSource` 用 `Interlocked` 计数（逻辑读取量）；面板每 500 ms 采样一次，
   关闭时不创建定时器也不绘制；`GetPerformanceSnapshot()` 可在不显示面板时自行取数
-- 依赖：Avalonia 12.1.6、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11
+- 依赖：Avalonia 12.1.1（包依赖声明为 12.1.1，Avalonia 12.1.1+ 项目可直接引用）、Silk.NET.OpenGLES 2.22.0、Microsoft.Data.Sqlite 8.0.11
 
 ## 已知限制
 
@@ -417,11 +440,14 @@ dotnet run --project samples/Globe3D.Demo -- --deep-test              # 88 km �
 dotnet run --project samples/Globe3D.Demo -- --street-test            # 3 km 街区级视角（深层级瓦片）
 dotnet run --project samples/Globe3D.Demo -- --pole-test              # 正对极点的极区填充
 dotnet run --project samples/Globe3D.Demo -- --stats-test             # 输出一次 [PERF] 性能快照到 demo.log
+dotnet run --project samples/Globe3D.Demo -- --flat                   # 二维平面模式
+dotnet run --project samples/Globe3D.Demo -- --flat-toggle-test       # 平面/三维切换与平面平移回归
 ```
 
 界面右上角的「底图」按钮可在本地 MBTiles、星图地球与天地图之间轮换；「性能面板」按钮控制
-左上角性能 HUD 的开关。状态栏会显示当前帧的层级范围、绘制瓦片数、纹理数与失败数，demo.log 中
-还会记录各层级的瓦片分布、图标解码结果与命中回归结果。
+左上角性能 HUD 的开关；「平面模式」按钮在二维 Web 墨卡托平面与三维地球之间切换。状态栏会显示
+当前帧的层级范围、绘制瓦片数、纹理数与失败数，demo.log 中还会记录各层级的瓦片分布、图标解码结果与
+命中回归结果。
 
 ## Native AOT 与裁剪
 
@@ -464,7 +490,7 @@ PNG/JPG/GIF/SVG 图标、区域与标注、标记悬停与命中回归、性能�
 dotnet pack src/Globe3D.Avalonia/Globe3D.Avalonia.csproj -c Release
 
 # 发布到 nuget.org（需要先配置 API Key）
-dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.1.1.0.nupkg \
+dotnet nuget push src/Globe3D.Avalonia/bin/Release/Globe3D.Avalonia.1.1.1.nupkg \
     --api-key $NUGET_API_KEY --source https://api.nuget.org/v3/index.json
 ```
 

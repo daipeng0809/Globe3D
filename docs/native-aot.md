@@ -49,6 +49,8 @@ build; results matched:
 | Command | Area | Result |
 | --- | --- | --- |
 | `--stats-test` | Continuous rendering, flight, deep zoom, MBTiles, performance panel | `score≈81 fps≈38 frame≈2.3 ms refresh≈59 Hz lod=z8-z9 disk≈254 KB/s`, exit code 0 |
+| `--flat --auto-close 6` | Flat (2D Web Mercator) mode: tile LOD, markers, regions and labels | `LOD z4:35`, exit code 0 |
+| `--flat-toggle-test` | Switching 2D ↔ 3D and flat-map panning | pan `0,0 → 17.82,8.88`, scale `5.092 → 5.092`, returns to 3D `z1-z4`, exit code 0 |
 | `--zoom-test` | Fly to 260 km over Shanghai | exit code 0, no trimming/AOT exceptions |
 | `--street-test` | 3 km street-level view, deepest quadtree levels | exit code 0 |
 | `--pole-test` | Polar cap fill (Mercator degeneration) | exit code 0 |

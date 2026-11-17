@@ -68,6 +68,32 @@ void main()
 }
 ";
 
+    /// <summary>平面瓦片顶点着色器：把每个瓦片直接铺到屏幕 NDC 上的矩形（Web 墨卡托平面）。</summary>
+    public const string FlatVertex = @"#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 aParam;
+
+uniform vec4 uFlatRect;      // left, top, right, bottom in NDC (y up)
+uniform vec2 uUvScale;
+uniform vec2 uUvOffset;
+
+out vec2 vUv;
+out vec3 vNormal;
+out vec3 vWorld;
+
+void main()
+{
+    vec2 ndc = vec2(mix(uFlatRect.x, uFlatRect.z, aParam.x),
+                    mix(uFlatRect.y, uFlatRect.w, aParam.y));
+
+    vUv = uUvOffset + aParam * uUvScale;
+    vNormal = vec3(0.0, 0.0, 1.0);
+    vWorld = vec3(0.0);
+    gl_Position = vec4(ndc, 0.0, 1.0);
+}
+";
+
     /// <summary>地球瓦片片元着色器：纹理采样 + 轻量明暗。</summary>
     public const string EarthFragment = @"#version 300 es
 precision highp float;

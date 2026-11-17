@@ -191,6 +191,10 @@ public partial class GlobeView : Panel
     public static readonly StyledProperty<bool> ShowLabelsProperty =
         AvaloniaProperty.Register<GlobeView, bool>(nameof(ShowLabels), true);
 
+    /// <summary>是否使用二维平面模式（Web 墨卡托平面）；false 时为三维地球。</summary>
+    public static readonly StyledProperty<bool> IsFlatModeProperty =
+        AvaloniaProperty.Register<GlobeView, bool>(nameof(IsFlatMode));
+
     /// <summary>是否自动旋转。</summary>
     public static readonly StyledProperty<bool> AutoRotateProperty =
         AvaloniaProperty.Register<GlobeView, bool>(nameof(AutoRotate));
@@ -305,6 +309,16 @@ public partial class GlobeView : Panel
     {
         get => GetValue(ShowLabelsProperty);
         set => SetValue(ShowLabelsProperty, value);
+    }
+
+    /// <summary>
+    /// 是否使用二维平面模式：开启后地图以 Web 墨卡托平面展示（关闭星空/大气/倾斜），
+    /// 关闭时恢复现有三维地球展示。
+    /// </summary>
+    public bool IsFlatMode
+    {
+        get => GetValue(IsFlatModeProperty);
+        set => SetValue(IsFlatModeProperty, value);
     }
 
     public bool AutoRotate
@@ -425,6 +439,15 @@ public partial class GlobeView : Panel
             _overlay.ShowLabels = ShowLabels;
             _overlay.InvalidateVisual();
         }
+        else if (change.Property == IsFlatModeProperty)
+        {
+            _camera.IsFlat = IsFlatMode;
+            _camera.Normalize();
+
+            // 模式切换后旧的屏幕命中/悬停结果不再有效，清掉悬停并在下一帧重建
+            UpdateHoverMarker(null);
+            InvalidateAll();
+        }
         else if (change.Property == AutoRotateProperty || change.Property == AutoRotateSpeedProperty)
         {
             if (AutoRotate)
@@ -466,7 +489,17 @@ public partial class GlobeView : Panel
     private void UpdateCameraAspect()
     {
         var aspect = Bounds.Height > 0 ? Bounds.Width / Bounds.Height : 1d;
-        _camera.Update(aspect);
+        var camera = _camera;
+        camera.Update(aspect);
+
+        // 平面模式会按视口/缩放把中心限制在地图范围内，把限制后的结果同步回属性，
+        // 避免状态栏或绑定仍显示限制前的经纬度
+        if (camera.IsFlat &&
+            (Math.Abs(camera.CenterLatitude - CenterLatitude) > 1e-9d ||
+             Math.Abs(MathUtil.NormalizeLongitudeDelta(camera.CenterLongitude - CenterLongitude)) > 1e-9d))
+        {
+            SyncPropertiesFromCamera();
+        }
     }
 
     /// <summary>把相机的当前状态写回控件属性（不触发反向同步）。</summary>

@@ -414,7 +414,10 @@ internal sealed partial class GlobeSurface
 
         // 投影只算一次：既用于可见性判断，也用于屏幕空间误差（层级估算）。
         // 注意只能传入实际填写的采样点，否则会读到栈上残留的无效点。
-        if (!IsTileVisible(points[..sampleCount], screenX, screenY, out var screenSizeUsable,
+        // 平面模式额外传入经纬度：瓦片在 ±180° 边缘用三维向量往返会被浮点误差翻到另一侧，
+        // 必须直接用经纬度投影，否则边缘瓦片 bbox 横跨全图、层级被误判成 z10。
+        if (!IsTileVisible(points[..sampleCount], lons[..sampleCount], lats[..sampleCount],
+                screenX, screenY, out var screenSizeUsable,
                 out var minX, out var minY, out var maxX, out var maxY))
             return;
 
@@ -469,8 +472,8 @@ internal sealed partial class GlobeSurface
     /// <paramref name="screenSizeUsable"/> 为 false 表示投影不可靠（接近切线、w 接近 0 的点会把坐标拉到无穷），
     /// 此时层级估算只用距离项，避免地平线附近的瓦片被误判成“铺满屏幕”而一路细分。
     /// </summary>
-    private bool IsTileVisible(ReadOnlySpan<Vec3> points,
-        Span<double> screenX, Span<double> screenY, out bool screenSizeUsable,
+    private bool IsTileVisible(ReadOnlySpan<Vec3> points, ReadOnlySpan<double> lons,
+        ReadOnlySpan<double> lats, Span<double> screenX, Span<double> screenY, out bool screenSizeUsable,
         out double minX, out double minY, out double maxX, out double maxY)
     {
         screenSizeUsable = false;
@@ -490,9 +493,15 @@ internal sealed partial class GlobeSurface
             screenY[i] = double.NaN;
 
             var point = points[i];
-            var occluded = GeoMath.IsOccludedBySphere(Camera.Position, point);
+            var occluded = !Camera.IsFlat && GeoMath.IsOccludedBySphere(Camera.Position, point);
 
-            if (!Camera.Project(point, w, h, out var sx, out var sy, out var depth))
+            double sx;
+            double sy;
+            float depth;
+            var projected = Camera.IsFlat
+                ? Camera.ProjectGeo(new GeoPoint(lats[i], lons[i]), w, h, out sx, out sy, out depth)
+                : Camera.Project(point, w, h, out sx, out sy, out depth);
+            if (!projected)
                 continue;
 
             screenX[i] = sx;
@@ -634,6 +643,13 @@ internal sealed partial class GlobeSurface
 
     private double ZoomAtPoint(Vec3 normal)
     {
+        // 平面模式下墨卡托瓦片的屏幕尺寸与纬度无关：全景像素数 / 256 就是所需层级
+        if (Camera.IsFlat)
+        {
+            var worldPixels = Camera.FlatScaleFactor * Math.Max(1f, _pixelHeight);
+            return Math.Log2(Math.Max(1d, worldPixels) / AssumedTileSize);
+        }
+
         var toCamera = Camera.Position - normal;
         var distance = Math.Max(1e-4f, toCamera.Length);
 
@@ -834,6 +850,9 @@ internal sealed partial class GlobeSurface
         var h = _lastRenderHeight;
         if (w <= 1 || h <= 1)
             return false;
+
+        if (Camera.IsFlat)
+            return Camera.TryGetFlatViewportBounds(out west, out east, out south, out north);
 
         var centerLon = Camera.CenterLongitude;
         double westDelta = double.MaxValue;
